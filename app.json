@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "FlowLedger",
+    "slug": "flowledger",
+    "scheme": "flowledger",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": { "supportsTablet": false, "bundleIdentifier": "com.hwetj.flowledger" },
+    "android": {
+      "package": "com.hwetj.flowledger",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F766E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      ["expo-splash-screen", { "backgroundColor": "#0F766E", "image": "./assets/splash-icon.png", "imageWidth": 200 }]
+    ]
+  }
+}

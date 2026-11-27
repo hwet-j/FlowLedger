@@ -1,4 +1,4 @@
-import type { SQLiteDatabase } from 'expo-sqlite';
+import type { SQLiteDatabase } from './native';
 
 import type { BackupData } from '../lib/backup';
 import { dueRuns } from '../lib/recurring';

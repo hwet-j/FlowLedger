@@ -19,6 +19,9 @@ TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 TYPES = ("expense", "income", "transfer")
 RULE_MATCHES = ("merchant", "category", "memo", "any")
 MAX_RULES = 200
+MAX_ITEMS = 100
+ITEMS_DEFAULT_LIMIT, ITEMS_MAX_LIMIT = 200, 500
+MAX_QTY = 1_000_000
 
 
 class LedgerError(Exception):
@@ -68,6 +71,23 @@ SQL_RULE_INSERT = "INSERT INTO account_rules(id,keyword,match,account_id,created
 SQL_RULE_UPDATE_ACCOUNT = "UPDATE account_rules SET account_id=? WHERE id=?"
 SQL_RULE_DELETE = "DELETE FROM account_rules WHERE id=?"
 SQL_RULE_COUNT = "SELECT COUNT(*) FROM account_rules"
+SQL_ITEMS_FOR_TX = """
+SELECT i.name AS name, i.qty AS qty, i.unit_price AS unit_price, i.amount AS amount, c.name AS category, p.name AS category_parent
+FROM transaction_items i LEFT JOIN categories c ON c.id = i.category_id LEFT JOIN categories p ON p.id = c.parent_id
+WHERE i.transaction_id = ? ORDER BY i.sort, i.id"""
+SQL_ITEMS_RANGE = """
+SELECT t.id AS tx_id, t.date AS date, t.merchant AS merchant, a.name AS account,
+  i.name AS name, i.qty AS qty, i.unit_price AS unit_price, i.amount AS amount, c.name AS category, p.name AS category_parent
+FROM transaction_items i
+JOIN transactions t ON t.id = i.transaction_id
+JOIN accounts a ON a.id = t.account_id
+LEFT JOIN categories c ON c.id = i.category_id
+LEFT JOIN categories p ON p.id = c.parent_id
+WHERE t.date >= ? AND t.date <= ?
+ORDER BY t.date DESC, COALESCE(t.time,'') DESC, t.created_at DESC, i.sort, i.id"""
+SQL_ITEM_INSERT = "INSERT INTO transaction_items(id,transaction_id,name,qty,unit_price,amount,category_id,sort) VALUES(?,?,?,?,?,?,?,?)"
+SQL_ITEMS_DELETE = "DELETE FROM transaction_items WHERE transaction_id = ?"
+SQL_ITEMS_SUM = "SELECT COALESCE(SUM(amount),0) AS total, COUNT(*) AS n FROM transaction_items WHERE transaction_id = ?"
 SQL_BALANCE_ONE = "SELECT balance FROM (" + SQL_BALANCES + ") WHERE id = ?"
 
 
@@ -207,6 +227,65 @@ def today():
     return _date.today().isoformat()
 
 
+def v_items(db, v, tx_type):
+    """items 배열 검증·정규화. 반환: [{name, qty, unit_price, amount, category_id}] (빈 배열 허용)"""
+    if v is None:
+        return []
+    if not isinstance(v, list):
+        raise LedgerError("invalid", "items 는 배열이어야 해요")
+    if len(v) > MAX_ITEMS:
+        raise LedgerError("invalid", f"품목은 {MAX_ITEMS}개까지예요")
+    if v and tx_type == "transfer":
+        raise LedgerError("invalid", "이체에는 품목을 쓸 수 없어요")
+    out = []
+    for n, it in enumerate(v, 1):
+        if not isinstance(it, dict):
+            raise LedgerError("invalid", f"품목 {n}: 형식이 올바르지 않아요")
+        name = v_text(it.get("name"), "품목 name", 80)
+        if not name:
+            raise LedgerError("invalid", f"품목 {n}: name 이 필요해요")
+        qty = it.get("qty", 1)
+        if qty is None:
+            qty = 1
+        if isinstance(qty, bool) or not isinstance(qty, (int, float)) or not (0 < qty <= MAX_QTY):
+            raise LedgerError("invalid", f"품목 {n}: qty 는 0 보다 크고 {MAX_QTY:,} 이하인 숫자여야 해요")
+        qty = int(qty) if float(qty).is_integer() else float(qty)
+        up = it.get("unit_price")
+        if up is not None:
+            if isinstance(up, bool) or not isinstance(up, (int, float)) or (isinstance(up, float) and not up.is_integer()) or not (0 <= up <= MAX_AMOUNT):
+                raise LedgerError("invalid", f"품목 {n}: unit_price 는 0 이상의 정수여야 해요")
+            up = int(up)
+        am = it.get("amount")
+        if isinstance(am, bool) or not isinstance(am, (int, float)) or (isinstance(am, float) and not am.is_integer()) or abs(am) > MAX_AMOUNT:
+            raise LedgerError("invalid", f"품목 {n}: amount 는 정수(원)여야 해요 (할인은 음수)")
+        cat = None
+        if it.get("category") not in (None, ""):
+            cat = resolve_category(db, it["category"], tx_type)
+        out.append({"name": name, "qty": qty, "unit_price": up, "amount": int(am), "category_id": cat})
+    return out
+
+
+def check_items_sum(items, amount):
+    if items:
+        total = sum(i["amount"] for i in items)
+        if total != amount:
+            raise LedgerError("invalid", f"품목 합계 {total:,}원 ≠ 총액 {amount:,}원")
+
+
+def insert_items(db, tx_id, items):
+    for n, i in enumerate(items):
+        db.execute(SQL_ITEM_INSERT, ("it_" + uuid.uuid4().hex[:16], tx_id, i["name"], i["qty"], i["unit_price"], i["amount"], i["category_id"], n))
+
+
+def item_json(r):
+    o = {"name": r["name"], "qty": int(r["qty"]) if float(r["qty"]).is_integer() else r["qty"], "amount": r["amount"]}
+    if r["unit_price"] is not None:
+        o["unit_price"] = r["unit_price"]
+    if r["category"]:
+        o["category"] = cat_display(r["category"], r["category_parent"])
+    return o
+
+
 # ---- 응답 모양 ----------------------------------------------------------------------------
 def tx_json(r):
     o = {"id": r["id"], "type": r["type"], "amount": r["amount"], "date": r["date"], "account": r["account"], "source": r["source"]}
@@ -226,7 +305,11 @@ def load_tx(db, tx_id):
     r = db.execute(SQL_TX_BY_ID, (tx_id,)).fetchone()
     if not r:
         raise LedgerError("not_found", f"거래 {tx_id} 를 찾을 수 없어요")
-    return tx_json(r)
+    o = tx_json(r)
+    items = [item_json(i) for i in db.execute(SQL_ITEMS_FOR_TX, (tx_id,)).fetchall()]
+    if items:
+        o["items"] = items
+    return o
 
 
 def balance_of(db, account_id):
@@ -276,8 +359,16 @@ def query(db, arg=None, now_ms=0):
             for r in db.execute(SQL_CATEGORIES).fetchall() if not r["archived"]]
     budgets = [{"category": cat_display(r["name"], r["parent_name"]) if r["name"] else None, "amount": r["amount"]} for r in db.execute(SQL_BUDGETS).fetchall()]
     rules = [{"id": r["id"], "keyword": r["keyword"], "match": r["match"], "account": r["account"]} for r in db.execute(SQL_RULES).fetchall()]
+    txs = [tx_json(r) for r in rows[:limit]]
+    if a.get("include_items") is True:
+        by_tx = {}
+        for r in db.execute(SQL_ITEMS_RANGE, (frm, to)).fetchall():
+            by_tx.setdefault(r["tx_id"], []).append(item_json(r))
+        for t in txs:
+            if t["id"] in by_tx:
+                t["items"] = by_tx[t["id"]]
     return {"v": 1, "app": "flowledger", "ts": now_ms, "from": frm, "to": to, "accounts": accounts, "categories": cats, "budgets": budgets, "rules": rules,
-            "transactions": [tx_json(r) for r in rows[:limit]], "truncated": len(rows) > limit}
+            "transactions": txs, "truncated": len(rows) > limit}
 
 
 def add(db, arg, now=None):
@@ -289,7 +380,11 @@ def add(db, arg, now=None):
     t = arg.get("type")
     if t not in TYPES:
         raise LedgerError("invalid", "type 은 expense, income, transfer 중 하나여야 해요")
-    amount = v_amount(arg.get("amount"))
+    has_items = isinstance(arg.get("items"), list) and len(arg["items"]) > 0
+    if arg.get("amount") is None and has_items:
+        amount = None  # 품목 합계로 정한다 (아래에서 검증)
+    else:
+        amount = v_amount(arg.get("amount"))
     d = v_date(arg["date"]) if arg.get("date") is not None else today()
     tm = v_time(arg.get("time"))
     merchant, memo, tags = v_text(arg.get("merchant"), "merchant", 100), v_text(arg.get("memo"), "memo", 500), v_tags(arg.get("tags"))
@@ -314,6 +409,10 @@ def add(db, arg, now=None):
                 cat = "cat_misc" if t == "expense" else "cat_inc_misc"
                 if not db.execute("SELECT 1 FROM categories WHERE id=?", (cat,)).fetchone():
                     raise LedgerError("invalid", "기본 카테고리(기타)가 없어요. category 를 지정해 주세요")
+        items = v_items(db, arg.get("items"), t)
+        if amount is None:
+            amount = v_amount(sum(i["amount"] for i in items))
+        check_items_sum(items, amount)
         account_source = "explicit"
         if arg.get("account") not in (None, ""):
             acc = resolve_account(db, arg["account"], for_write=True)
@@ -347,6 +446,7 @@ def add(db, arg, now=None):
             db.execute("COMMIT")
             return {"ok": True, "id": dup["id"], "duplicate": True, "transaction": tx,
                     "account": {"name": tx["account"], "balance_after": balance_of(db, row["account_id"])}}
+        insert_items(db, tx_id, items)
         tx = load_tx(db, tx_id)
         bal = balance_of(db, acc)
         db.execute("COMMIT")
@@ -388,6 +488,15 @@ def update(db, arg, now=None):
                 raise LedgerError("invalid", "to_account 는 이체에서만 쓸 수 있어요")
             if arg.get("category") not in (None, ""):
                 cat = resolve_category(db, arg["category"], t)
+        if "items" in arg:
+            items = v_items(db, arg["items"], t)  # 전체 교체, [] 면 품목 삭제
+            check_items_sum(items, amount)
+            db.execute(SQL_ITEMS_DELETE, (arg["id"],))
+            insert_items(db, arg["id"], items)
+        elif "amount" in arg:
+            row = db.execute(SQL_ITEMS_SUM, (arg["id"],)).fetchone()
+            if row["n"] and row["total"] != amount:
+                raise LedgerError("invalid", f"품목 합계 {row['total']:,}원 ≠ 총액 {amount:,}원 — 총액을 바꾸려면 items 도 함께 보내 주세요")
         db.execute(SQL_UPDATE, (amount, d, tm, acc, to_acc, cat, merchant, memo, tags, now or now_iso(), arg["id"]))
         tx = load_tx(db, arg["id"])
         bal = balance_of(db, acc)
@@ -407,6 +516,7 @@ def delete(db, arg):
         row = db.execute(SQL_TX_ROW, (arg["id"],)).fetchone()
         if not row:
             raise LedgerError("not_found", f"거래 {arg['id']} 를 찾을 수 없어요")
+        db.execute(SQL_ITEMS_DELETE, (arg["id"],))  # foreign_keys 에 의존하지 않고 명시적으로 지운다
         db.execute(SQL_DELETE, (arg["id"],))
         bal = balance_of(db, row["account_id"])
         name = db.execute("SELECT name FROM accounts WHERE id=?", (row["account_id"],)).fetchone()[0]
@@ -471,3 +581,40 @@ def delete_rule(db, arg):
         if db.in_transaction:
             db.execute("ROLLBACK")
         raise
+
+
+def items(db, arg=None, now_ms=0):
+    a = arg or {}
+    to = v_date(a["to"]) if a.get("to") is not None else today()
+    frm = v_date(a["from"]) if a.get("from") is not None else (_date.fromisoformat(to) - timedelta(days=DEFAULT_WINDOW_DAYS - 1)).isoformat()
+    if frm > to:
+        raise LedgerError("invalid", "from 이 to 보다 뒤예요")
+    if (_date.fromisoformat(to) - _date.fromisoformat(frm)).days + 1 > MAX_SPAN_DAYS:
+        raise LedgerError("invalid", f"한 번에 {MAX_SPAN_DAYS}일까지만 조회할 수 있어요")
+    limit = a.get("limit", ITEMS_DEFAULT_LIMIT)
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise LedgerError("invalid", "limit 은 1 이상의 정수여야 해요")
+    limit = min(limit, ITEMS_MAX_LIMIT)
+    text = v_text(a.get("text"), "text", 80)
+    merchant = v_text(a.get("merchant"), "merchant", 100)
+    nt, nm = norm(text) if text else None, norm(merchant) if merchant else None
+    out = []
+    truncated = False
+    for r in db.execute(SQL_ITEMS_RANGE, (frm, to)).fetchall():
+        if nt and nt not in norm(r["name"]):
+            continue
+        if nm and nm not in norm(r["merchant"] or ""):
+            continue
+        if len(out) >= limit:
+            truncated = True
+            break
+        o = {"tx_id": r["tx_id"], "date": r["date"], "account": r["account"], "name": r["name"],
+             "qty": int(r["qty"]) if float(r["qty"]).is_integer() else r["qty"], "amount": r["amount"]}
+        if r["merchant"]:
+            o["merchant"] = r["merchant"]
+        if r["unit_price"] is not None:
+            o["unit_price"] = r["unit_price"]
+        if r["category"]:
+            o["category"] = cat_display(r["category"], r["category_parent"])
+        out.append(o)
+    return {"v": 1, "ts": now_ms, "from": frm, "to": to, "count": len(out), "truncated": truncated, "items": out}

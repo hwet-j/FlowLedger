@@ -28,6 +28,10 @@ object LedgerApi {
   private const val DEFAULT_LIMIT = 1500
   private const val MAX_LIMIT = 3000
   private const val MAX_RULES = 200
+  private const val MAX_ITEMS = 100
+  private const val ITEMS_DEFAULT_LIMIT = 200
+  private const val ITEMS_MAX_LIMIT = 500
+  private const val MAX_QTY = 1_000_000.0
   private val REQ_ID_RE = Regex("^[A-Za-z0-9_.:\\-]{1,64}$")
   private val DATE_RE = Regex("^\\d{4}-\\d{2}-\\d{2}$")
   private val TIME_RE = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
@@ -39,6 +43,7 @@ object LedgerApi {
     val obj = parse(arg)
     return when (method) {
       "query" -> query(db, obj)
+      "items" -> items(db, obj)
       "add" -> add(db, obj)
       "update" -> update(db, obj)
       "delete" -> delete(db, obj)
@@ -173,6 +178,72 @@ object LedgerApi {
     return if (out.isEmpty()) null else out.joinToString(",")
   }
 
+  // ---- 영수증 품목 ----------------------------------------------------------------------------
+  private data class Item(val name: String, val qty: Double, val unitPrice: Long?, val amount: Long, val categoryId: String?)
+
+  private fun wholeLong(v: Any?, what: String, min: Long, max: Long): Long {
+    if (v !is Number) throw LedgerError("invalid", what)
+    val d = v.toDouble()
+    if (d.isNaN() || d.isInfinite() || d != Math.floor(d)) throw LedgerError("invalid", what)
+    val l = v.toLong()
+    if (l < min || l > max) throw LedgerError("invalid", what)
+    return l
+  }
+
+  /** items 배열 검증·정규화 (빈 배열 허용). tests/provider/ledger.py v_items 의 포팅 */
+  private fun vItems(db: SQLiteDatabase, v: Any?, txType: String): List<Item> {
+    if (v == null || v == JSONObject.NULL) return emptyList()
+    if (v !is JSONArray) throw LedgerError("invalid", "items 는 배열이어야 해요")
+    if (v.length() > MAX_ITEMS) throw LedgerError("invalid", "품목은 ${MAX_ITEMS}개까지예요")
+    if (v.length() > 0 && txType == "transfer") throw LedgerError("invalid", "이체에는 품목을 쓸 수 없어요")
+    val out = ArrayList<Item>()
+    for (idx in 0 until v.length()) {
+      val n = idx + 1
+      val it = v.opt(idx) as? JSONObject ?: throw LedgerError("invalid", "품목 $n: 형식이 올바르지 않아요")
+      val name = vText(it.opt("name"), "품목 name", 80) ?: throw LedgerError("invalid", "품목 $n: name 이 필요해요")
+      var qty = 1.0
+      if (it.has("qty") && !it.isNull("qty")) {
+        val q = it.opt("qty")
+        if (q !is Number || q.toDouble().isNaN() || !(q.toDouble() > 0.0 && q.toDouble() <= MAX_QTY)) {
+          throw LedgerError("invalid", "품목 $n: qty 는 0 보다 크고 1,000,000 이하인 숫자여야 해요")
+        }
+        qty = q.toDouble()
+      }
+      var unitPrice: Long? = null
+      if (it.has("unit_price") && !it.isNull("unit_price")) unitPrice = wholeLong(it.opt("unit_price"), "품목 $n: unit_price 는 0 이상의 정수여야 해요", 0, MAX_AMOUNT)
+      val amount = wholeLong(it.opt("amount"), "품목 $n: amount 는 정수(원)여야 해요 (할인은 음수)", -MAX_AMOUNT, MAX_AMOUNT)
+      val cat = if (!blank(it, "category")) resolveCategory(db, refString(it, "category"), txType) else null
+      out.add(Item(name, qty, unitPrice, amount, cat))
+    }
+    return out
+  }
+
+  private fun checkItemsSum(items: List<Item>, amount: Long) {
+    if (items.isEmpty()) return
+    val total = items.sumOf { it.amount }
+    if (total != amount) throw LedgerError("invalid", "품목 합계 ${"%,d".format(java.util.Locale.US, total)}원 ≠ 총액 ${"%,d".format(java.util.Locale.US, amount)}원")
+  }
+
+  private fun insertItems(db: SQLiteDatabase, txId: String, items: List<Item>) {
+    items.forEachIndexed { n, i ->
+      db.execSQL(LedgerSql.ITEM_INSERT, arrayOf<Any?>("it_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16), txId, i.name, i.qty, i.unitPrice, i.amount, i.categoryId, n))
+    }
+  }
+
+  private fun putQty(o: JSONObject, q: Double) {
+    if (q == Math.floor(q)) o.put("qty", q.toLong()) else o.put("qty", q)
+  }
+
+  private fun itemJson(c: Cursor): JSONObject {
+    val o = JSONObject().put("name", c.str("name"))
+    putQty(o, c.getDouble(c.getColumnIndexOrThrow("qty")))
+    o.put("amount", c.lng("amount"))
+    val ui = c.getColumnIndexOrThrow("unit_price")
+    if (!c.isNull(ui)) o.put("unit_price", c.getLong(ui))
+    c.str("category")?.takeIf { it.isNotEmpty() }?.let { o.put("category", catDisplay(it, c.str("category_parent"))) }
+    return o
+  }
+
   // ---- 응답 모양 ----------------------------------------------------------------------------
   private fun txJson(c: Cursor): JSONObject {
     val o = JSONObject()
@@ -185,8 +256,13 @@ object LedgerApi {
     return o
   }
 
-  private fun loadTx(db: SQLiteDatabase, id: String): JSONObject =
-    db.rawQuery(LedgerSql.TX_BY_ID, arrayOf(id)).use { if (it.moveToFirst()) txJson(it) else throw LedgerError("not_found", "거래 $id 를 찾을 수 없어요") }
+  private fun loadTx(db: SQLiteDatabase, id: String): JSONObject {
+    val o = db.rawQuery(LedgerSql.TX_BY_ID, arrayOf(id)).use { if (it.moveToFirst()) txJson(it) else throw LedgerError("not_found", "거래 $id 를 찾을 수 없어요") }
+    val items = JSONArray()
+    db.rawQuery(LedgerSql.ITEMS_FOR_TX, arrayOf(id)).use { while (it.moveToNext()) items.put(itemJson(it)) }
+    if (items.length() > 0) o.put("items", items)
+    return o
+  }
 
   private fun balanceOf(db: SQLiteDatabase, accountId: String): Long =
     db.rawQuery(LedgerSql.BALANCE_ONE, arrayOf(accountId)).use { if (it.moveToFirst()) it.getLong(0) else 0L }
@@ -271,7 +347,17 @@ object LedgerApi {
     val out = JSONObject().put("v", 1).put("app", "flowledger").put("ts", System.currentTimeMillis()).put("from", frm).put("to", to)
       .put("accounts", accounts).put("categories", cats).put("budgets", budgets).put("rules", rules)
     val shown = JSONArray()
-    txs.take(limit).forEach { shown.put(it) }
+    val includeItems = a.opt("include_items") == true
+    val byTx = HashMap<String, JSONArray>()
+    if (includeItems) {
+      db.rawQuery(LedgerSql.ITEMS_RANGE, arrayOf(frm, to)).use { c ->
+        while (c.moveToNext()) byTx.getOrPut(c.str("tx_id")!!) { JSONArray() }.put(itemJson(c))
+      }
+    }
+    txs.take(limit).forEach { t ->
+      byTx[t.optString("id")]?.let { t.put("items", it) }
+      shown.put(t)
+    }
     return out.put("transactions", shown).put("truncated", txs.size > limit)
   }
 
@@ -287,7 +373,8 @@ object LedgerApi {
     if (reqId !is String || !REQ_ID_RE.matches(reqId)) throw LedgerError("invalid", "req_id 가 필요해요 (영문·숫자·_.:- 64자 이하)")
     val t = a.opt("type") as? String
     if (t == null || t !in TYPES) throw LedgerError("invalid", "type 은 expense, income, transfer 중 하나여야 해요")
-    val amount = vAmount(a.opt("amount"))
+    val hasItems = ((a.opt("items") as? JSONArray)?.length() ?: 0) > 0
+    val amountIn: Long? = if ((!a.has("amount") || a.isNull("amount")) && hasItems) null else vAmount(a.opt("amount"))
     val d = if (a.has("date") && !a.isNull("date")) vDate(a.opt("date")) else today()
     val tm = vTime(a.opt("time"))
     val merchant = vText(a.opt("merchant"), "merchant", 100)
@@ -306,6 +393,9 @@ object LedgerApi {
           if (!first(db, LedgerSql.CATEGORY_EXISTS, cat)) throw LedgerError("invalid", "기본 카테고리(기타)가 없어요. category 를 지정해 주세요")
         }
       }
+      val items = vItems(db, a.opt("items"), t)
+      val amount: Long = amountIn ?: vAmount(items.sumOf { it.amount })
+      checkItemsSum(items, amount)
       var accountSource = "explicit"
       val acc: String
       if (!blank(a, "account")) {
@@ -336,6 +426,7 @@ object LedgerApi {
         db.rawQuery(LedgerSql.TX_BY_REF, arrayOf(reqId)).use { if (it.moveToFirst()) return@writeTx dupResult(db, it.str("id")!!) }
         throw LedgerError("db_error", e.message ?: "저장 실패")
       }
+      insertItems(db, txId, items)
       val tx = loadTx(db, txId)
       JSONObject().put("ok", true).put("id", txId).put("duplicate", false).put("transaction", tx)
         .put("account", accountObj(tx.optString("account"), balanceOf(db, acc))).put("account_source", accountSource)
@@ -371,6 +462,17 @@ object LedgerApi {
         if (!blank(a, "to_account")) throw LedgerError("invalid", "to_account 는 이체에서만 쓸 수 있어요")
         if (!blank(a, "category")) cat = resolveCategory(db, refString(a, "category"), t)
       }
+      if (a.has("items")) {
+        val items = vItems(db, a.opt("items"), t) // 전체 교체, [] 면 품목 삭제
+        checkItemsSum(items, amount)
+        db.execSQL(LedgerSql.ITEMS_DELETE, arrayOf<Any?>(id))
+        insertItems(db, id, items)
+      } else if (a.has("amount")) {
+        val (total, n) = db.rawQuery(LedgerSql.ITEMS_SUM, arrayOf(id)).use {
+          it.moveToFirst(); Pair(it.getLong(it.getColumnIndexOrThrow("total")), it.getInt(it.getColumnIndexOrThrow("n")))
+        }
+        if (n > 0 && total != amount) throw LedgerError("invalid", "품목 합계 ${"%,d".format(java.util.Locale.US, total)}원 ≠ 총액 ${"%,d".format(java.util.Locale.US, amount)}원 — 총액을 바꾸려면 items 도 함께 보내 주세요")
+      }
       db.execSQL(LedgerSql.UPDATE, arrayOf<Any?>(amount, d, tm, acc, toAcc, cat, merchant, memo, tags, nowIso(), id))
       val tx = loadTx(db, id)
       JSONObject().put("ok", true).put("transaction", tx).put("account", accountObj(tx.optString("account"), balanceOf(db, acc)))
@@ -385,6 +487,7 @@ object LedgerApi {
         if (!it.moveToFirst()) throw LedgerError("not_found", "거래 $id 를 찾을 수 없어요")
         it.str("account_id")!!
       }
+      db.execSQL(LedgerSql.ITEMS_DELETE, arrayOf<Any?>(id)) // foreign_keys 에 의존하지 않고 명시적으로 지운다
       db.execSQL(LedgerSql.DELETE, arrayOf<Any?>(id))
       val name = db.rawQuery(LedgerSql.ACCOUNT_NAME, arrayOf(accountId)).use { if (it.moveToFirst()) it.getString(0) else null }
       JSONObject().put("ok", true).put("deleted", true).put("account", accountObj(name, balanceOf(db, accountId)))
@@ -422,5 +525,41 @@ object LedgerApi {
       db.execSQL(LedgerSql.RULE_DELETE, arrayOf<Any?>(id))
       JSONObject().put("ok", true)
     }
+  }
+
+  fun items(db: SQLiteDatabase, a: JSONObject): JSONObject {
+    val to = if (a.has("to") && !a.isNull("to")) vDate(a.opt("to")) else today()
+    val frm = if (a.has("from") && !a.isNull("from")) vDate(a.opt("from")) else LocalDate.parse(to).minusDays(DEFAULT_WINDOW_DAYS - 1).toString()
+    if (frm > to) throw LedgerError("invalid", "from 이 to 보다 뒤예요")
+    if (ChronoUnit.DAYS.between(LocalDate.parse(frm), LocalDate.parse(to)) + 1 > MAX_SPAN_DAYS) throw LedgerError("invalid", "한 번에 ${MAX_SPAN_DAYS}일까지만 조회할 수 있어요")
+    var limit = ITEMS_DEFAULT_LIMIT
+    if (a.has("limit")) {
+      val l = a.opt("limit")
+      if (l !is Number || l is Double || l is Float || l.toLong() < 1) throw LedgerError("invalid", "limit 은 1 이상의 정수여야 해요")
+      limit = minOf(l.toLong(), ITEMS_MAX_LIMIT.toLong()).toInt()
+    }
+    val text = vText(a.opt("text"), "text", 80)
+    val merchant = vText(a.opt("merchant"), "merchant", 100)
+    val nt = text?.let { norm(it) }
+    val nm = merchant?.let { norm(it) }
+    val out = JSONArray()
+    var truncated = false
+    db.rawQuery(LedgerSql.ITEMS_RANGE, arrayOf(frm, to)).use { c ->
+      while (c.moveToNext()) {
+        if (nt != null && !norm(c.str("name") ?: "").contains(nt)) continue
+        if (nm != null && !norm(c.str("merchant") ?: "").contains(nm)) continue
+        if (out.length() >= limit) { truncated = true; break }
+        val o = JSONObject().put("tx_id", c.str("tx_id")).put("date", c.str("date")).put("account", c.str("account")).put("name", c.str("name"))
+        putQty(o, c.getDouble(c.getColumnIndexOrThrow("qty")))
+        o.put("amount", c.lng("amount"))
+        c.str("merchant")?.takeIf { it.isNotEmpty() }?.let { o.put("merchant", it) }
+        val ui = c.getColumnIndexOrThrow("unit_price")
+        if (!c.isNull(ui)) o.put("unit_price", c.getLong(ui))
+        c.str("category")?.takeIf { it.isNotEmpty() }?.let { o.put("category", catDisplay(it, c.str("category_parent"))) }
+        out.put(o)
+      }
+    }
+    return JSONObject().put("v", 1).put("ts", System.currentTimeMillis()).put("from", frm).put("to", to)
+      .put("count", out.length()).put("truncated", truncated).put("items", out)
   }
 }

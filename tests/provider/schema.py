@@ -23,10 +23,18 @@ CREATE TABLE transactions(
   merchant TEXT, memo TEXT, tags TEXT,
   source TEXT NOT NULL DEFAULT 'app' CHECK(source IN ('app','assistant','recurring')),
   source_ref TEXT UNIQUE,
-  recurring_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  recurring_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  receipt_uri TEXT);
 CREATE INDEX tx_date ON transactions(date DESC, time DESC);
 CREATE INDEX tx_acc ON transactions(account_id);
 CREATE INDEX tx_cat ON transactions(category_id);
+CREATE TABLE transaction_items(
+  id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, qty REAL NOT NULL DEFAULT 1, unit_price INTEGER,
+  amount INTEGER NOT NULL,
+  category_id TEXT REFERENCES categories(id), sort INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX items_tx ON transaction_items(transaction_id);
+CREATE INDEX items_name ON transaction_items(name);
 CREATE TABLE budgets(id TEXT PRIMARY KEY, category_id TEXT UNIQUE REFERENCES categories(id), amount INTEGER NOT NULL CHECK(amount>0));
 CREATE TABLE recurring(
   id TEXT PRIMARY KEY, type TEXT NOT NULL CHECK(type IN ('expense','income','transfer')), amount INTEGER NOT NULL CHECK(amount>0),

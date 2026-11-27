@@ -13,10 +13,11 @@ Kotlin 은 이 환경에서 실행할 수 없어서(Android 에뮬레이터 없�
 ## 메서드
 | method | arg(JSON) | 성공 json |
 |---|---|---|
-| `query` | `{from?, to?, limit?}` (기본 최근 90일, 최대 400일, limit 기본 1500 최대 3000) | `{v,app,ts,from,to,accounts[],categories[],budgets[],rules[],transactions[],truncated}` |
-| `add` | `{req_id, type, amount, date?, time?, account?, to_account?, category?, merchant?, memo?, tags?}` | `{ok,id,duplicate,transaction,account:{name,balance_after},account_source}` |
-| `update` | `{id, 바꿀 필드만}` (type 변경 불가, null 로 time/merchant/memo/tags 비우기) | `{ok,transaction,account}` |
+| `query` | `{from?, to?, limit?, include_items?}` (기본 최근 90일, 최대 400일, limit 기본 1500 최대 3000) | `{v,app,ts,from,to,accounts[],categories[],budgets[],rules[],transactions[],truncated}` |
+| `add` | `{req_id, type, amount?, date?, time?, account?, to_account?, category?, merchant?, memo?, tags?, items?}` (items 가 있으면 amount 생략 가능=품목 합계) | `{ok,id,duplicate,transaction,account:{name,balance_after},account_source}` |
+| `update` | `{id, 바꿀 필드만, items?(전체 교체, [] 는 품목 삭제)}` (type 변경 불가, null 로 time/merchant/memo/tags 비우기) | `{ok,transaction,account}` |
 | `delete` | `{id}` | `{ok,deleted,account}` |
+| `items` | `{from?, to?, text?, merchant?, limit?}` (기본 최근 90일, text=품목명 부분일치(공백·대소문자 무시), limit 기본 200 최대 500) | `{v,ts,from,to,count,truncated,items:[{tx_id,date,merchant?,account,name,qty,unit_price?,amount,category?}]}` (날짜 내림차순) |
 | `add_rule` | `{keyword, account, match?}` | `{ok,id,updated}` |
 | `delete_rule` | `{id}` | `{ok}` |
 
@@ -28,6 +29,7 @@ Kotlin 은 이 환경에서 실행할 수 없어서(Android 에뮬레이터 없�
 - **이체**: `to_account` 필수, 출금과 달라야 함, 이체가 아닌데 `to_account` 주면 `invalid`.
 - **멱등**: `req_id`(`[A-Za-z0-9_.:-]{1,64}`)를 `source_ref` 에 저장. 같은 `req_id` 는 새로 만들지 않고 처음 결과를 `duplicate:true` 로 돌려줌. `BEGIN IMMEDIATE` + UNIQUE 위반 시 재조회로 동시 요청도 1건만 생성.
 - **검증**: amount 정수 1..9_999_999_999, date `YYYY-MM-DD` 실존 날짜 2000-01-01..2100-12-31(생략 시 기기 오늘), time `HH:MM`, merchant ≤100, memo ≤500, tags 쉼표/배열 → 앞 `#` 제거·공백 정리·중복 제거, 항목 ≤20자, 10개까지.
+- **영수증 품목(items)**: `[{name(≤80), qty?(0<qty≤1,000,000, 기본 1, 소수 허용), unit_price?(정수≥0), amount(정수, 할인·쿠폰은 음수), category?(이름 매칭 규칙 동일, 거래 type 과 같은 분류만)}]`, 최대 100개, 이체에는 불가. **불변식**: 품목이 있으면 `SUM(amount) == 거래 amount`, 어긋나면 `invalid` "품목 합계 N원 ≠ 총액 M원"(add·update 모두, 롤백). `add` 에서 amount 를 생략하면 합계를 총액으로 쓴다(합계가 1 미만이면 invalid). `update` 는 `items` 를 주면 전체 교체(총액과 맞아야 함), `items:[]` 는 품목 삭제(총액 유지), `amount` 만 바꾸는데 기존 품목 합계와 다르면 `invalid`(items 도 함께 보내게 안내). `delete` 는 `foreign_keys` 에 기대지 않고 품목을 먼저 명시적으로 지운다. 거래 응답은 품목이 있을 때만 `items` 키를 둔다(`query` 는 `include_items:true` 일 때만).
 - **잔액** 은 저장하지 않고 `SQL_BALANCES` 로 계산(카드는 음수 가능).
 - 쓰기는 모두 `BEGIN IMMEDIATE`(Kotlin `beginTransactionNonExclusive`) 한 트랜잭션. 오류면 롤백.
 - 응답의 거래는 id 가 아니라 표시 이름(통장 이름, 카테고리 `"대분류>소분류"`)을 쓰고, 비어 있는 선택 필드는 키를 생략한다.
@@ -125,4 +127,29 @@ DELETE FROM account_rules WHERE id=?;
 
 -- SQL_RULE_COUNT
 SELECT COUNT(*) FROM account_rules;
+
+-- SQL_ITEMS_FOR_TX
+SELECT i.name AS name, i.qty AS qty, i.unit_price AS unit_price, i.amount AS amount, c.name AS category, p.name AS category_parent
+FROM transaction_items i LEFT JOIN categories c ON c.id = i.category_id LEFT JOIN categories p ON p.id = c.parent_id
+WHERE i.transaction_id = ? ORDER BY i.sort, i.id;
+
+-- SQL_ITEMS_RANGE
+SELECT t.id AS tx_id, t.date AS date, t.merchant AS merchant, a.name AS account,
+  i.name AS name, i.qty AS qty, i.unit_price AS unit_price, i.amount AS amount, c.name AS category, p.name AS category_parent
+FROM transaction_items i
+JOIN transactions t ON t.id = i.transaction_id
+JOIN accounts a ON a.id = t.account_id
+LEFT JOIN categories c ON c.id = i.category_id
+LEFT JOIN categories p ON p.id = c.parent_id
+WHERE t.date >= ? AND t.date <= ?
+ORDER BY t.date DESC, COALESCE(t.time,'') DESC, t.created_at DESC, i.sort, i.id;
+
+-- SQL_ITEM_INSERT
+INSERT INTO transaction_items(id,transaction_id,name,qty,unit_price,amount,category_id,sort) VALUES(?,?,?,?,?,?,?,?);
+
+-- SQL_ITEMS_DELETE
+DELETE FROM transaction_items WHERE transaction_id = ?;
+
+-- SQL_ITEMS_SUM
+SELECT COALESCE(SUM(amount),0) AS total, COUNT(*) AS n FROM transaction_items WHERE transaction_id = ?;
 ```

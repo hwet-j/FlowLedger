@@ -43,6 +43,23 @@ ORDER BY t.date DESC, COALESCE(t.time,'') DESC, t.created_at DESC LIMIT $limit""
 VALUES(?,?,?,?,?,?,?,?,?,?,?,'assistant',?,?,?)"""
   const val UPDATE = "UPDATE transactions SET amount=?, date=?, time=?, account_id=?, to_account_id=?, category_id=?, merchant=?, memo=?, tags=?, updated_at=? WHERE id=?"
   const val DELETE = "DELETE FROM transactions WHERE id = ?"
+  const val ITEMS_FOR_TX = """
+SELECT i.name AS name, i.qty AS qty, i.unit_price AS unit_price, i.amount AS amount, c.name AS category, p.name AS category_parent
+FROM transaction_items i LEFT JOIN categories c ON c.id = i.category_id LEFT JOIN categories p ON p.id = c.parent_id
+WHERE i.transaction_id = ? ORDER BY i.sort, i.id"""
+  const val ITEMS_RANGE = """
+SELECT t.id AS tx_id, t.date AS date, t.merchant AS merchant, a.name AS account,
+  i.name AS name, i.qty AS qty, i.unit_price AS unit_price, i.amount AS amount, c.name AS category, p.name AS category_parent
+FROM transaction_items i
+JOIN transactions t ON t.id = i.transaction_id
+JOIN accounts a ON a.id = t.account_id
+LEFT JOIN categories c ON c.id = i.category_id
+LEFT JOIN categories p ON p.id = c.parent_id
+WHERE t.date >= ? AND t.date <= ?
+ORDER BY t.date DESC, COALESCE(t.time,'') DESC, t.created_at DESC, i.sort, i.id"""
+  const val ITEM_INSERT = "INSERT INTO transaction_items(id,transaction_id,name,qty,unit_price,amount,category_id,sort) VALUES(?,?,?,?,?,?,?,?)"
+  const val ITEMS_DELETE = "DELETE FROM transaction_items WHERE transaction_id = ?"
+  const val ITEMS_SUM = "SELECT COALESCE(SUM(amount),0) AS total, COUNT(*) AS n FROM transaction_items WHERE transaction_id = ?"
   const val BALANCE_ONE = "SELECT balance FROM ($BALANCES) WHERE id = ?"
 
   const val RULES = """

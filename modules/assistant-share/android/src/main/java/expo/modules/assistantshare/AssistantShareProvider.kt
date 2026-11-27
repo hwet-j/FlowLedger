@@ -13,7 +13,7 @@ import java.io.File
 /**
  * 비서 앱 전용 제공자. ContentResolver.call(authority, method, arg) 로 가계부 DB 를 읽고 쓴다.
  * - 호출자 패키지가 com.hwetj.assistant 가 아니면 "forbidden"
- * - method: query · add · update · delete · add_rule · delete_rule (그 밖은 "unknown_method")
+ * - method: query · items · add · update · delete · add_rule · delete_rule (그 밖은 "unknown_method")
  * - query/insert/update/delete(ContentProvider 본연의 메서드)는 전부 막혀 있어 다른 경로로는 아무것도 노출되지 않는다
  * 응답 Bundle: 성공 = json(String), ts(Long) / 실패 = error(코드), message
  * 오류 코드: forbidden · no_db · unknown_method · invalid · ambiguous · not_found · db_error · unavailable
@@ -69,6 +69,6 @@ class AssistantShareProvider : ContentProvider() {
 
   companion object {
     const val ALLOWED = "com.hwetj.assistant"
-    private val METHODS = setOf("query", "add", "update", "delete", "add_rule", "delete_rule")
+    private val METHODS = setOf("query", "add", "update", "delete", "add_rule", "delete_rule", "items")
   }
 }

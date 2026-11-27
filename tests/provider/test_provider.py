@@ -350,5 +350,151 @@ class Query(unittest.TestCase):
         self.assertEqual(L.query(db, {"from": "2026-11-01", "to": "2026-11-30", "limit": 99999})["truncated"], False)  # 상한 3000 으로 보정
 
 
+MILK = {"name": "우유 1L", "qty": 2, "unit_price": 2980, "amount": 5960, "category": "장보기"}
+SOAP = {"name": "주방세제", "amount": 4500}
+COUPON = {"name": "쿠폰 할인", "amount": -1000}
+
+
+class Items(unittest.TestCase):
+    def test_add_with_items_sum_invariant(self):
+        db = fresh()
+        r = add(db, amount=9460, merchant="이마트", date="2026-11-27", category="장보기", items=[MILK, SOAP, COUPON])
+        t = r["transaction"]
+        self.assertEqual(t["amount"], 9460)
+        self.assertEqual([i["name"] for i in t["items"]], ["우유 1L", "주방세제", "쿠폰 할인"])
+        self.assertEqual(t["items"][0], {"name": "우유 1L", "qty": 2, "unit_price": 2980, "amount": 5960, "category": "식비>장보기"})
+        self.assertEqual(t["items"][2]["amount"], -1000)
+        self.assertEqual(t["items"][1]["qty"], 1)
+        self.assertNotIn("category", t["items"][1])
+        self.assertEqual(r["account"]["balance_after"], 1_000_000 - 9460)
+
+    def test_sum_mismatch_rejected_and_rolled_back(self):
+        db = fresh()
+        with self.assertRaises(L.LedgerError) as c:
+            add(db, amount=10000, items=[MILK, SOAP])
+        self.assertEqual(c.exception.code, "invalid")
+        self.assertIn("품목 합계 10,460원 ≠ 총액 10,000원", c.exception.message)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 0)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM transaction_items").fetchone()[0], 0)
+
+    def test_amount_derived_from_items(self):
+        db = fresh()
+        r = add(db, items=[MILK, SOAP])
+        self.assertEqual(r["transaction"]["amount"], 10460)
+        with self.assertRaises(L.LedgerError):
+            add(db, items=[{"name": "공짜", "amount": -5}])  # 합계가 0 이하면 총액으로 못 씀
+
+    def test_item_category_matching_and_errors(self):
+        db = fresh()
+        with self.assertRaises(L.LedgerError) as c:
+            add(db, amount=1000, items=[{"name": "운동복", "amount": 1000, "category": "운동"}])
+        self.assertEqual(c.exception.code, "ambiguous")
+        with self.assertRaises(L.LedgerError) as c:
+            add(db, amount=1000, items=[{"name": "x", "amount": 1000, "category": "없는분류"}])
+        self.assertEqual(c.exception.code, "not_found")
+        with self.assertRaises(L.LedgerError):
+            add(db, amount=1000, items=[{"name": "x", "amount": 1000, "category": "급여"}])  # 지출에 수입 분류
+
+    def test_item_validation(self):
+        db = fresh()
+        ok = {"name": "a", "amount": 1000}
+        bad = [[{"amount": 1000}], [{"name": "", "amount": 1000}], [{"name": "n" * 81, "amount": 1000}], [{"name": "a"}],
+               [{"name": "a", "amount": 10.5}], [{"name": "a", "amount": "1000"}], [{"name": "a", "amount": 1000, "qty": 0}],
+               [{"name": "a", "amount": 1000, "qty": -1}], [{"name": "a", "amount": 1000, "qty": True}],
+               [{"name": "a", "amount": 1000, "unit_price": -1}], ["str"], "items", {"name": "a"},
+               [{**ok} for _ in range(101)]]
+        for items in bad:
+            with self.assertRaises(L.LedgerError, msg=str(items)[:60]):
+                L.add(db, {"req_id": "iv", "type": "expense", "amount": 1000, "items": items})
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], 0)
+        r = L.add(db, {"req_id": "iv2", "type": "expense", "amount": 100000, "items": [{"name": "a", "amount": 1000, "qty": 0.5} for _ in range(100)]})
+        self.assertEqual(len(r["transaction"]["items"]), 100)
+        self.assertEqual(r["transaction"]["items"][0]["qty"], 0.5)
+
+    def test_transfer_with_items_rejected(self):
+        db = fresh()
+        second_account(db, "적금", "savings")
+        with self.assertRaises(L.LedgerError):
+            add(db, type="transfer", amount=1000, to_account="적금", items=[{"name": "a", "amount": 1000}])
+
+    def test_income_items_use_income_categories(self):
+        db = fresh()
+        r = add(db, type="income", amount=3_100_000, items=[{"name": "기본급", "amount": 3_000_000, "category": "급여"}, {"name": "성과급", "amount": 100_000, "category": "부수입"}])
+        self.assertEqual([i["category"] for i in r["transaction"]["items"]], ["급여", "부수입"])
+
+    def test_update_replace_clear_and_amount_rules(self):
+        db = fresh()
+        r = add(db, amount=10460, items=[MILK, SOAP])
+        # 총액만 바꾸면 품목 합계와 어긋나서 거절
+        with self.assertRaises(L.LedgerError) as c:
+            L.update(db, {"id": r["id"], "amount": 9000})
+        self.assertIn("items", c.exception.message)
+        # 품목만 바꿔 합계가 다르면 거절
+        with self.assertRaises(L.LedgerError):
+            L.update(db, {"id": r["id"], "items": [SOAP]})
+        # 총액과 품목을 함께 → 전체 교체
+        u = L.update(db, {"id": r["id"], "amount": 4500, "items": [SOAP]})
+        self.assertEqual([i["name"] for i in u["transaction"]["items"]], ["주방세제"])
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM transaction_items").fetchone()[0], 1)
+        # 다른 필드만 바꾸면 품목 유지
+        u = L.update(db, {"id": r["id"], "memo": "수정"})
+        self.assertEqual(len(u["transaction"]["items"]), 1)
+        # [] 는 품목 삭제 (총액은 유지)
+        u = L.update(db, {"id": r["id"], "items": []})
+        self.assertNotIn("items", u["transaction"])
+        self.assertEqual(u["transaction"]["amount"], 4500)
+        # 품목이 없으면 총액을 자유롭게 바꿀 수 있다
+        self.assertEqual(L.update(db, {"id": r["id"], "amount": 1234})["transaction"]["amount"], 1234)
+
+    def test_delete_removes_items_even_without_foreign_keys(self):
+        db = fresh()
+        db.execute("PRAGMA foreign_keys=OFF")  # CASCADE 에 기대지 않는다
+        r = add(db, amount=10460, items=[MILK, SOAP])
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM transaction_items").fetchone()[0], 2)
+        L.delete(db, {"id": r["id"]})
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM transaction_items").fetchone()[0], 0)
+
+    def test_duplicate_req_id_does_not_duplicate_items(self):
+        db = fresh()
+        add(db, req_id="rec-1", amount=10460, items=[MILK, SOAP])
+        r = add(db, req_id="rec-1", amount=10460, items=[MILK, SOAP])
+        self.assertTrue(r["duplicate"])
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM transaction_items").fetchone()[0], 2)
+        self.assertEqual(len(r["transaction"]["items"]), 2)
+
+    def test_query_include_items(self):
+        db = fresh()
+        add(db, amount=10460, date=L.today(), items=[MILK, SOAP])
+        add(db, amount=500, date=L.today())
+        q = L.query(db)
+        self.assertTrue(all("items" not in t for t in q["transactions"]))
+        q = L.query(db, {"include_items": True})
+        with_items = [t for t in q["transactions"] if "items" in t]
+        self.assertEqual(len(with_items), 1)
+        self.assertEqual(with_items[0]["items"][0]["name"], "우유 1L")
+        self.assertEqual(len([t for t in q["transactions"] if "items" not in t]), 1)
+
+    def test_items_method_filters_order_limit(self):
+        db = fresh()
+        add(db, amount=7960, date="2026-11-20", merchant="이마트 성수점", items=[{"name": "우유 1L", "qty": 2, "unit_price": 2980, "amount": 5960, "category": "장보기"}, {"name": "계란", "amount": 2000}])
+        add(db, amount=3100, date="2026-11-25", merchant="쿠팡", items=[{"name": "서울우유 900ml", "amount": 3100}])
+        add(db, amount=900, date="2026-11-26", merchant="편의점", items=[{"name": "껌", "amount": 900}])
+        q = L.items(db, {"from": "2026-11-01", "to": "2026-11-30"})
+        self.assertEqual([i["name"] for i in q["items"]], ["껌", "서울우유 900ml", "우유 1L", "계란"])  # 날짜 내림차순
+        self.assertEqual(q["count"], 4)
+        self.assertFalse(q["truncated"])
+        milk = L.items(db, {"from": "2026-11-01", "to": "2026-11-30", "text": "우 유"})  # 공백 무시 부분일치
+        self.assertEqual([i["name"] for i in milk["items"]], ["서울우유 900ml", "우유 1L"])
+        first = milk["items"][1]
+        self.assertEqual((first["merchant"], first["qty"], first["unit_price"], first["category"], first["account"]), ("이마트 성수점", 2, 2980, "식비>장보기", "주 통장"))
+        self.assertEqual([i["name"] for i in L.items(db, {"from": "2026-11-01", "to": "2026-11-30", "merchant": "이마트"})["items"]], ["우유 1L", "계란"])
+        lim = L.items(db, {"from": "2026-11-01", "to": "2026-11-30", "limit": 2})
+        self.assertEqual((lim["count"], lim["truncated"]), (2, True))
+        self.assertEqual(L.items(db, {"from": "2026-11-01", "to": "2026-11-30", "limit": 99999})["truncated"], False)
+        for bad in ({"from": "2026-11-30", "to": "2026-11-01"}, {"from": "2025-01-01", "to": "2026-11-30"}, {"limit": 0}, {"text": "x" * 81}):
+            with self.assertRaises(L.LedgerError):
+                L.items(db, bad)
+
+
 if __name__ == "__main__":
     unittest.main()

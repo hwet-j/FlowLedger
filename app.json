@@ -21,7 +21,6 @@
     },
     "plugins": [
       "expo-router",
-      "expo-sqlite",
       ["expo-local-authentication", { "faceIDPermission": "앱 잠금 해제에 사용해요" }],
       ["expo-notifications", { "color": "#0F766E", "icon": "./assets/notification-icon.png" }],
       ["expo-image-picker", { "photosPermission": "영수증 사진을 고를 때 사용해요", "cameraPermission": "영수증을 촬영할 때 사용해요", "microphonePermission": false }],

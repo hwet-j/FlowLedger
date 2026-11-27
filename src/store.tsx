@@ -1,5 +1,5 @@
 import * as Notifications from 'expo-notifications';
-import type { SQLiteDatabase } from 'expo-sqlite';
+import type { SQLiteDatabase } from './db/native';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 
@@ -29,6 +29,9 @@ interface Ctx extends Snapshot {
   /** 마지막으로 자동 생성된 고정 거래 수 (홈 배너용) */
   recurringCreated: number;
   dismissRecurring(): void;
+  /** 시작할 때 DB 가 손상돼 있어 보존하고 새로 시작했다면 보존된 파일 이름 (홈 안내 배너용) */
+  recovered: string | null;
+  dismissRecovered(): void;
   /** DB 작업을 실행하고 화면 데이터를 다시 읽는다 */
   mutate<T>(fn: (db: SQLiteDatabase) => Promise<T>): Promise<T>;
   refresh(): Promise<void>;
@@ -51,6 +54,7 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recurringCreated, setRecurringCreated] = useState(0);
+  const [recovered, setRecovered] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,6 +67,7 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
   const sync = useCallback(async () => {
     try {
       const db = await getDb();
+      if (db.recovered) setRecovered((r) => r ?? db.recovered);
       const n = await runRecurring(db, todayStr());
       if (n > 0) setRecurringCreated((c) => c + n);
       setSnap(await loadAll(db));
@@ -171,8 +176,9 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
     itemsByTx: groupItems(snap.items),
     catById: new Map(snap.categories.map((c) => [c.id, c])),
     recurringCreated, dismissRecurring: () => setRecurringCreated(0),
+    recovered, dismissRecovered: () => setRecovered(null),
     mutate, refresh, removeTx, quickRecord, notice, showNotice, clearNotice,
-  }), [snap, ready, error, settings, setSetting, recurringCreated, mutate, refresh, removeTx, quickRecord, notice, showNotice, clearNotice]);
+  }), [snap, ready, error, settings, setSetting, recurringCreated, recovered, mutate, refresh, removeTx, quickRecord, notice, showNotice, clearNotice]);
 
   return <C.Provider value={value}>{children}</C.Provider>;
 }

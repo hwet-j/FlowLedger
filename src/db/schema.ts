@@ -1,8 +1,6 @@
 export const SCHEMA_VERSION = 2;
 
 export const PRAGMAS = `
-PRAGMA journal_mode = WAL;
-PRAGMA busy_timeout = 3000;
 PRAGMA foreign_keys = ON;
 `;
 

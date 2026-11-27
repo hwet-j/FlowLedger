@@ -1,17 +1,20 @@
-import * as SQLite from 'expo-sqlite';
-
+import { NativeDatabase, type Queryable } from './native';
 import { seedAccounts, seedCategories } from '../lib/seed';
 import { MIGRATE_V2_ITEMS, PRAGMAS, SCHEMA_V1, SCHEMA_VERSION } from './schema';
 
+/** 파일 이름은 Kotlin SharedDb.DB_FILE 과 같아야 한다 (예전 expo-sqlite 와 같은 파일을 이어 쓴다) */
 export const DB_NAME = 'flowledger.db';
 
-let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+export type { Queryable };
 
-/** 단일 DB 핸들. 최초 호출 시 스키마 생성·마이그레이션·시드 */
-export function getDb(): Promise<SQLite.SQLiteDatabase> {
+let dbPromise: Promise<NativeDatabase> | null = null;
+
+/** 단일 DB 핸들. 최초 호출 시 열기(손상 검사)·스키마 생성·마이그레이션·시드 */
+export function getDb(): Promise<NativeDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
-      const db = await SQLite.openDatabaseAsync(DB_NAME);
+      const db = new NativeDatabase();
+      await db.open();
       await db.execAsync(PRAGMAS);
       await migrate(db);
       return db;
@@ -21,7 +24,7 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
   return dbPromise;
 }
 
-async function migrate(db: SQLite.SQLiteDatabase) {
+async function migrate(db: NativeDatabase) {
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   const v = row?.user_version ?? 0;
   if (v < 1) {

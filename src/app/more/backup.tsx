@@ -1,10 +1,11 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { getDb } from '../../db';
 import { restoreAll, wipeAll } from '../../db/repo';
 import { Button, Card, SectionTitle } from '../../components/ui';
 import { makeBackup, parseBackup } from '../../lib/backup';
@@ -26,6 +27,10 @@ export default function BackupScreen() {
   const insets = useSafeAreaInsets();
   const { accounts, categories, txs, budgets, recurring, rules, templates, goals, items, mutate } = useLedger();
   const [busy, setBusy] = useState(false);
+  const [corrupt, setCorrupt] = useState<{ name: string; bytes: number }[]>([]);
+  useEffect(() => {
+    getDb().then((db) => db.listCorrupt()).then(setCorrupt).catch(() => {});
+  }, []);
   const today = ymd(new Date());
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -69,6 +74,16 @@ export default function BackupScreen() {
         <Button title="CSV 내보내기" kind="soft" icon="document-text-outline" onPress={exportCsv} disabled={busy} />
         <Button title="영수증 품목 CSV 내보내기" kind="soft" icon="receipt-outline" onPress={exportItemsCsv} disabled={busy} />
       </Card>
+      {corrupt.length > 0 && (
+        <Card style={{ gap: 10 }}>
+          <Text style={{ fontWeight: '800', fontSize: 16, color: t.text }}>보존된 손상 파일</Text>
+          <Text style={{ color: t.sub, lineHeight: 19 }}>DB 가 손상됐을 때 지우지 않고 남겨 둔 파일이에요. 복구 도구로 열어 볼 일이 없다면 지워도 돼요.</Text>
+          {corrupt.map((c) => (
+            <Button key={c.name} title={`${c.name.replace('flowledger.db.corrupt-', '')} · ${Math.round(c.bytes / 1024)}KB 삭제`} kind="danger"
+              onPress={() => run(async () => { const db = await getDb(); await db.deleteCorrupt(c.name); setCorrupt(await db.listCorrupt()); })} disabled={busy} />
+          ))}
+        </Card>
+      )}
       <SectionTitle title="위험" />
       <Card style={{ gap: 10 }}>
         <Text style={{ color: t.sub, lineHeight: 19 }}>내역 {txs.length}건이 저장돼 있어요.</Text>

@@ -6,13 +6,14 @@ Kotlin 은 이 환경에서 실행할 수 없어서(Android 에뮬레이터 없�
 
 - authority `com.hwetj.flowledger.assistant`, `ContentResolver.call(Uri("content://com.hwetj.flowledger.assistant"), method, argJson, null)`
 - 호출자: `getCallingPackage() == "com.hwetj.assistant"` (null 이면 호출 uid 의 패키지 목록에 포함) 아니면 `forbidden`
-- DB: `<filesDir>/SQLite/flowledger.db` (expo-sqlite 와 같은 파일). 없거나 테이블이 없으면 `no_db`
-- 응답 Bundle: 성공 `json`+`ts`, 실패 `error`+`message`. 오류 코드: `forbidden no_db unknown_method invalid ambiguous not_found db_error unavailable`
+- DB: `<filesDir>/SQLite/flowledger.db`. 없거나 테이블이 없으면 `no_db`. **앱 JS(`FlowDbModule`)와 제공자가 `SharedDb` 의 같은 SQLiteDatabase 연결 하나를 공유한다** (아래 "동시성·손상 방지")
+- 응답 Bundle: 성공 `json`+`ts`, 실패 `error`+`message`. 오류 코드: `forbidden no_db unknown_method invalid ambiguous not_found busy db_error unavailable`
 - ContentProvider 본연의 query/insert/update/delete/getType 은 null/0 (다른 경로 없음)
 
 ## 메서드
 | method | arg(JSON) | 성공 json |
 |---|---|---|
+| `ping` | (없음) — **DB 를 열지 않는다**. 호출자 검사 후 응답 | `{ok:true, db:<DB 파일 존재>, recovered:<이번 실행에서 손상 DB 를 치웠는지>, version}` |
 | `query` | `{from?, to?, limit?, include_items?}` (기본 최근 90일, 최대 400일, limit 기본 1500 최대 3000) | `{v,app,ts,from,to,accounts[],categories[],budgets[],rules[],transactions[],truncated}` |
 | `add` | `{req_id, type, amount?, date?, time?, account?, to_account?, category?, merchant?, memo?, tags?, items?}` (items 가 있으면 amount 생략 가능=품목 합계) | `{ok,id,duplicate,transaction,account:{name,balance_after},account_source}` |
 | `update` | `{id, 바꿀 필드만, items?(전체 교체, [] 는 품목 삭제)}` (type 변경 불가, null 로 time/merchant/memo/tags 비우기) | `{ok,transaction,account}` |
@@ -20,6 +21,13 @@ Kotlin 은 이 환경에서 실행할 수 없어서(Android 에뮬레이터 없�
 | `items` | `{from?, to?, text?, merchant?, limit?}` (기본 최근 90일, text=품목명 부분일치(공백·대소문자 무시), limit 기본 200 최대 500) | `{v,ts,from,to,count,truncated,items:[{tx_id,date,merchant?,account,name,qty,unit_price?,amount,category?}]}` (날짜 내림차순) |
 | `add_rule` | `{keyword, account, match?}` | `{ok,id,updated}` |
 | `delete_rule` | `{id}` | `{ok}` |
+
+## 동시성·손상 방지 (SharedDb)
+- **원인**: 앱이 expo-sqlite(번들 SQLite)로, 제공자가 안드로이드 시스템 SQLite 로 **같은 프로세스에서 같은 파일**을 열면 POSIX 잠금이 서로 풀려 `database disk image is malformed`(SQLITE_CORRUPT)가 난다.
+- **해결**: expo-sqlite 를 제거하고, 앱 JS(`FlowDbModule` ↔ `src/db/native.ts`)와 제공자가 `SharedDb` 의 **단일 `SQLiteDatabase` 연결**(WAL 아님, 연결 풀 없음)을 쓴다. 닫지 않는다.
+- 모든 DB 작업은 **단일 스레드 실행기**에서 실행한다(안드로이드 트랜잭션은 스레드에 묶임). `Semaphore(1)` 잠금이 "누가 쓰는가"를 정한다: 일반 호출은 짧게, JS 트랜잭션은 `txBegin`(BEGIN IMMEDIATE)부터 `txEnd`(COMMIT/ROLLBACK)까지 잡고(60초 안전장치), 제공자 작업도 같은 잠금 안에서 실행된다(10초 안에 못 잡으면 `busy`).
+- 열 때 `PRAGMA quick_check`. 실패하면 파일(+ -wal/-shm/-journal)을 `flowledger.db.corrupt-<ms>` 로 **이름만 바꿔 보존**하고 새 DB 를 만든다(`recovered`). 예전 expo-sqlite 가 만든 WAL 파일은 기본 저널로 되돌리며 합친다.
+- 제공자는 DB 파일이 없으면 만들지 않는다(`no_db`). 앱만 만든다.
 
 ## 규칙
 - **이름 정규화** `norm(s)` = 모든 공백 제거 + 소문자. 통장/카테고리 매칭은 id 일치 → 정규화 이름 완전일치(1건이면 확정, 2건 이상 `ambiguous`) → 부분일치(1건이면 확정, 2건 이상 `ambiguous`) → `not_found`(후보 나열).

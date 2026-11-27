@@ -21,7 +21,8 @@ export function catStyle(c: Category | undefined, all: Map<string, Category>) {
 
 export function TxRow({ t, onPress, onLongPress, showDate }: { t: Tx; onPress?: () => void; onLongPress?: () => void; showDate?: boolean }) {
   const th = useTheme();
-  const { catById, accountById, categories } = useLedger();
+  const { catById, accountById, categories, itemsByTx } = useLedger();
+  const nItems = itemsByTx.get(t.id)?.length ?? 0;
   const cat = t.category_id ? catById.get(t.category_id) : undefined;
   const st = catStyle(cat, catById);
   const isTr = t.type === 'transfer';
@@ -40,7 +41,7 @@ export function TxRow({ t, onPress, onLongPress, showDate }: { t: Tx; onPress?: 
       <View style={{ flex: 1 }}>
         <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: th.text }}>{title}</Text>
         <Text numberOfLines={1} style={{ fontSize: 12.5, color: th.sub, marginTop: 2 }}>
-          {sub}{t.source === 'assistant' ? ' · 🤖' : t.source === 'recurring' ? ' · 🔁' : ''}
+          {sub}{t.source === 'assistant' ? ' · 🤖' : t.source === 'recurring' ? ' · 🔁' : ''}{nItems ? ` · 🧾${nItems}` : ''}{t.receipt_uri ? ' · 📎' : ''}
         </Text>
       </View>
       <Text style={{ fontSize: 16, fontWeight: '700', color }}>

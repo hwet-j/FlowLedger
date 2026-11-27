@@ -1,6 +1,7 @@
 import { addMonths, monthRange, weekdayOf } from './dates';
 import { norm } from './match';
-import type { Budget, Category, Tx } from './types';
+import { expenseParts } from './items';
+import type { Budget, Category, Tx, TxItem } from './types';
 
 const inMonth = (t: Pick<Tx, 'date'>, month: string) => t.date.startsWith(month);
 
@@ -36,7 +37,7 @@ export function topCategoryId(categoryId: string | null, cats: Category[]): stri
   return c.parent_id ?? c.id;
 }
 
-export function monthStats(txs: Tx[], cats: Category[], month: string): MonthStats {
+export function monthStats(txs: Tx[], cats: Category[], month: string, itemsByTx?: Map<string, TxItem[]>): MonthStats {
   const cur = txs.filter((t) => inMonth(t, month));
   // month 가 'YYYY' 이면 연 통계 (전년 대비)
   const prevMonth = month.length === 4 ? String(Number(month) - 1) : addMonths(month, -1);
@@ -46,8 +47,8 @@ export function monthStats(txs: Tx[], cats: Category[], month: string): MonthSta
   const income = sum(cur, 'income');
   const prevExpense = sum(prev, 'expense');
   const groups = new Map<string, CatStat>();
-  for (const t of cur) {
-    if (t.type !== 'expense') continue;
+  // 품목에 분류가 있으면 품목 금액을 그 분류로 센다 (한 영수증이 여러 분류로 쪼개짐)
+  for (const t of expenseParts(cur, itemsByTx)) {
     const top = topCategoryId(t.category_id, cats);
     const topCat = cats.find((c) => c.id === top);
     let g = groups.get(top);
@@ -145,8 +146,8 @@ export interface BudgetStatus {
 }
 
 /** 월 예산 진행. 대분류 예산은 소분류 지출을 포함하고, 소분류 예산은 그 소분류만 센다. category_id=null 은 월 전체 지출 */
-export function budgetStatus(budgets: Budget[], txs: Tx[], cats: Category[], month: string): BudgetStatus[] {
-  const spend = txs.filter((t) => inMonth(t, month) && t.type === 'expense');
+export function budgetStatus(budgets: Budget[], txs: Tx[], cats: Category[], month: string, itemsByTx?: Map<string, TxItem[]>): BudgetStatus[] {
+  const spend = expenseParts(txs.filter((t) => inMonth(t, month)), itemsByTx);
   const total = spend.reduce((s, t) => s + t.amount, 0);
   return budgets
     .map((b) => {

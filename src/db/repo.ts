@@ -2,7 +2,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { BackupData } from '../lib/backup';
 import { dueRuns } from '../lib/recurring';
-import type { Account, AccountRule, Budget, Category, Goal, Recurring, Template, Tx } from '../lib/types';
+import { validateItems } from '../lib/items';
+import type { Account, AccountRule, Budget, Category, Goal, ItemInput, Recurring, Template, Tx, TxItem } from '../lib/types';
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const nowIso = () => new Date().toISOString();
@@ -16,10 +17,11 @@ export interface Snapshot {
   rules: AccountRule[];
   templates: Template[];
   goals: Goal[];
+  items: TxItem[];
 }
 
 export async function loadAll(db: SQLiteDatabase): Promise<Snapshot> {
-  const [accounts, categories, txs, budgets, recurring, rules, templates, goals] = await Promise.all([
+  const [accounts, categories, txs, budgets, recurring, rules, templates, goals, items] = await Promise.all([
     db.getAllAsync<Account>('SELECT * FROM accounts ORDER BY sort, created_at'),
     db.getAllAsync<Category>('SELECT * FROM categories ORDER BY type, sort, name'),
     db.getAllAsync<Tx>('SELECT * FROM transactions ORDER BY date DESC, time DESC, created_at DESC'),
@@ -28,44 +30,83 @@ export async function loadAll(db: SQLiteDatabase): Promise<Snapshot> {
     db.getAllAsync<AccountRule>('SELECT * FROM account_rules ORDER BY created_at'),
     db.getAllAsync<Template>('SELECT * FROM templates ORDER BY sort, name'),
     db.getAllAsync<Goal>('SELECT * FROM goals ORDER BY created_at'),
+    db.getAllAsync<TxItem>('SELECT * FROM transaction_items ORDER BY transaction_id, sort'),
   ]);
-  return { accounts, categories, txs, budgets, recurring, rules, templates, goals };
+  return { accounts, categories, txs, budgets, recurring, rules, templates, goals, items };
 }
 
 // ---- 거래
-export type TxInput = Omit<Tx, 'id' | 'created_at' | 'updated_at' | 'source' | 'source_ref' | 'recurring_id'> &
-  Partial<Pick<Tx, 'source' | 'source_ref' | 'recurring_id'>>;
+export type TxInput = Omit<Tx, 'id' | 'created_at' | 'updated_at' | 'source' | 'source_ref' | 'recurring_id' | 'receipt_uri'> &
+  Partial<Pick<Tx, 'source' | 'source_ref' | 'recurring_id' | 'receipt_uri'>>;
 
-export async function insertTx(db: SQLiteDatabase, t: TxInput, id: string = uid()): Promise<string> {
+type Q = Pick<SQLiteDatabase, 'runAsync'>;
+
+/** 품목 전체 교체 (빈 배열이면 품목 삭제). 호출하는 쪽에서 트랜잭션을 연다 */
+async function replaceItems(q: Q, txId: string, items: ItemInput[]): Promise<void> {
+  await q.runAsync('DELETE FROM transaction_items WHERE transaction_id=?', txId);
+  let n = 0;
+  for (const i of items) {
+    await q.runAsync('INSERT INTO transaction_items(id,transaction_id,name,qty,unit_price,amount,category_id,sort) VALUES(?,?,?,?,?,?,?,?)',
+      uid(), txId, i.name.trim(), i.qty, i.unit_price, i.amount, i.category_id, n++);
+  }
+}
+
+export async function insertTx(db: SQLiteDatabase, t: TxInput, id: string = uid(), items: ItemInput[] = []): Promise<string> {
+  const err = validateItems(items, t.amount);
+  if (err) throw new Error(err);
   const now = nowIso();
-  await db.runAsync(
-    `INSERT INTO transactions(id,type,amount,date,time,account_id,to_account_id,category_id,merchant,memo,tags,source,source_ref,recurring_id,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    id, t.type, t.amount, t.date, t.time ?? null, t.account_id, t.type === 'transfer' ? t.to_account_id : null,
-    t.type === 'transfer' ? null : t.category_id, t.merchant ?? null, t.memo ?? null, t.tags ?? null,
-    t.source ?? 'app', t.source_ref ?? null, t.recurring_id ?? null, now, now,
-  );
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    await tx.runAsync(
+      `INSERT INTO transactions(id,type,amount,date,time,account_id,to_account_id,category_id,merchant,memo,tags,source,source_ref,recurring_id,created_at,updated_at,receipt_uri)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      id, t.type, t.amount, t.date, t.time ?? null, t.account_id, t.type === 'transfer' ? t.to_account_id : null,
+      t.type === 'transfer' ? null : t.category_id, t.merchant ?? null, t.memo ?? null, t.tags ?? null,
+      t.source ?? 'app', t.source_ref ?? null, t.recurring_id ?? null, now, now, t.receipt_uri ?? null,
+    );
+    if (items.length && t.type === 'expense') await replaceItems(tx, id, items);
+  });
   return id;
 }
 
-export async function updateTx(db: SQLiteDatabase, id: string, t: TxInput): Promise<void> {
-  await db.runAsync(
-    `UPDATE transactions SET type=?,amount=?,date=?,time=?,account_id=?,to_account_id=?,category_id=?,merchant=?,memo=?,tags=?,updated_at=? WHERE id=?`,
-    t.type, t.amount, t.date, t.time ?? null, t.account_id, t.type === 'transfer' ? t.to_account_id : null,
-    t.type === 'transfer' ? null : t.category_id, t.merchant ?? null, t.memo ?? null, t.tags ?? null, nowIso(), id,
-  );
+/** items 가 undefined 면 품목은 그대로 두고(금액이 바뀌면 호출자가 검증), 배열이면 전체 교체 */
+export async function updateTx(db: SQLiteDatabase, id: string, t: TxInput, items?: ItemInput[]): Promise<void> {
+  if (items) {
+    const err = validateItems(items, t.amount);
+    if (err) throw new Error(err);
+  }
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    await tx.runAsync(
+      `UPDATE transactions SET type=?,amount=?,date=?,time=?,account_id=?,to_account_id=?,category_id=?,merchant=?,memo=?,tags=?,receipt_uri=?,updated_at=? WHERE id=?`,
+      t.type, t.amount, t.date, t.time ?? null, t.account_id, t.type === 'transfer' ? t.to_account_id : null,
+      t.type === 'transfer' ? null : t.category_id, t.merchant ?? null, t.memo ?? null, t.tags ?? null, t.receipt_uri ?? null, nowIso(), id,
+    );
+    if (items) await replaceItems(tx, id, t.type === 'expense' ? items : []);
+  });
 }
 
-export const deleteTx = (db: SQLiteDatabase, id: string) => db.runAsync('DELETE FROM transactions WHERE id=?', id);
+/** 품목도 함께 지운다 (외래키 CASCADE 에 기대지 않고 명시 삭제) */
+export async function deleteTx(db: SQLiteDatabase, id: string): Promise<void> {
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    await tx.runAsync('DELETE FROM transaction_items WHERE transaction_id=?', id);
+    await tx.runAsync('DELETE FROM transactions WHERE id=?', id);
+  });
+}
 
-/** 삭제 취소(되살리기)용: 지운 행을 그대로 다시 넣는다 */
-export async function restoreTx(db: SQLiteDatabase, t: Tx): Promise<void> {
-  await db.runAsync(
-    `INSERT OR REPLACE INTO transactions(id,type,amount,date,time,account_id,to_account_id,category_id,merchant,memo,tags,source,source_ref,recurring_id,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    t.id, t.type, t.amount, t.date, t.time, t.account_id, t.to_account_id, t.category_id, t.merchant, t.memo, t.tags,
-    t.source, t.source_ref, t.recurring_id, t.created_at, t.updated_at,
-  );
+/** 삭제 취소(되살리기)용: 지운 행과 품목을 그대로 다시 넣는다 */
+export async function restoreTx(db: SQLiteDatabase, t: Tx, items: TxItem[] = []): Promise<void> {
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    await tx.runAsync(
+      `INSERT OR REPLACE INTO transactions(id,type,amount,date,time,account_id,to_account_id,category_id,merchant,memo,tags,source,source_ref,recurring_id,created_at,updated_at,receipt_uri)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      t.id, t.type, t.amount, t.date, t.time, t.account_id, t.to_account_id, t.category_id, t.merchant, t.memo, t.tags,
+      t.source, t.source_ref, t.recurring_id, t.created_at, t.updated_at, t.receipt_uri ?? null,
+    );
+    await tx.runAsync('DELETE FROM transaction_items WHERE transaction_id=?', t.id);
+    for (const i of items) {
+      await tx.runAsync('INSERT INTO transaction_items(id,transaction_id,name,qty,unit_price,amount,category_id,sort) VALUES(?,?,?,?,?,?,?,?)',
+        i.id, i.transaction_id, i.name, i.qty, i.unit_price, i.amount, i.category_id, i.sort);
+    }
+  });
 }
 
 // ---- 통장
@@ -233,7 +274,7 @@ export async function runRecurring(db: SQLiteDatabase, today: string): Promise<n
 export async function restoreAll(db: SQLiteDatabase, d: BackupData): Promise<void> {
   await db.withExclusiveTransactionAsync(async (tx) => {
     await tx.execAsync('PRAGMA defer_foreign_keys = ON');
-    for (const t of ['transactions', 'account_rules', 'recurring', 'budgets', 'templates', 'goals', 'categories', 'accounts']) await tx.runAsync(`DELETE FROM ${t}`);
+    for (const t of ['transaction_items', 'transactions', 'account_rules', 'recurring', 'budgets', 'templates', 'goals', 'categories', 'accounts']) await tx.runAsync(`DELETE FROM ${t}`);
     for (const a of d.accounts) {
       await tx.runAsync('INSERT INTO accounts(id,name,kind,initial_balance,is_default,archived,sort,created_at) VALUES(?,?,?,?,?,?,?,?)',
         a.id, a.name, a.kind, a.initial_balance, a.is_default ? 1 : 0, a.archived ? 1 : 0, a.sort ?? 0, a.created_at ?? nowIso());
@@ -244,10 +285,14 @@ export async function restoreAll(db: SQLiteDatabase, d: BackupData): Promise<voi
     }
     for (const t of d.transactions) {
       await tx.runAsync(
-        `INSERT INTO transactions(id,type,amount,date,time,account_id,to_account_id,category_id,merchant,memo,tags,source,source_ref,recurring_id,created_at,updated_at)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO transactions(id,type,amount,date,time,account_id,to_account_id,category_id,merchant,memo,tags,source,source_ref,recurring_id,created_at,updated_at,receipt_uri)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         t.id, t.type, t.amount, t.date, t.time ?? null, t.account_id, t.to_account_id ?? null, t.category_id ?? null, t.merchant ?? null,
-        t.memo ?? null, t.tags ?? null, t.source ?? 'app', t.source_ref ?? null, t.recurring_id ?? null, t.created_at ?? nowIso(), t.updated_at ?? nowIso());
+        t.memo ?? null, t.tags ?? null, t.source ?? 'app', t.source_ref ?? null, t.recurring_id ?? null, t.created_at ?? nowIso(), t.updated_at ?? nowIso(), t.receipt_uri ?? null);
+    }
+    for (const i of d.items ?? []) {
+      await tx.runAsync('INSERT INTO transaction_items(id,transaction_id,name,qty,unit_price,amount,category_id,sort) VALUES(?,?,?,?,?,?,?,?)',
+        i.id, i.transaction_id, i.name, i.qty ?? 1, i.unit_price ?? null, i.amount, i.category_id ?? null, i.sort ?? 0);
     }
     for (const b of d.budgets) await tx.runAsync('INSERT INTO budgets(id,category_id,amount) VALUES(?,?,?)', b.id, b.category_id ?? null, b.amount);
     for (const r of d.recurring) {
@@ -268,7 +313,7 @@ export async function restoreAll(db: SQLiteDatabase, d: BackupData): Promise<voi
 
 export async function wipeAll(db: SQLiteDatabase): Promise<void> {
   await db.withExclusiveTransactionAsync(async (tx) => {
-    for (const t of ['transactions', 'account_rules', 'recurring', 'budgets']) await tx.runAsync(`DELETE FROM ${t}`);
+    for (const t of ['transaction_items', 'transactions', 'account_rules', 'recurring', 'budgets']) await tx.runAsync(`DELETE FROM ${t}`);
   });
 }
 

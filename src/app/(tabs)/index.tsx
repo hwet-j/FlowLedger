@@ -17,11 +17,11 @@ import { useTheme } from '../../theme';
 export default function Home() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { ready, error, accounts, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, templates, goals, quickRecord } = useLedger();
+  const { ready, error, accounts, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, templates, goals, quickRecord, itemsByTx } = useLedger();
   const month = monthKey(new Date());
   const today = todayStr();
-  const stats = useMemo(() => monthStats(txs, categories, month), [txs, categories, month]);
-  const bs = useMemo(() => budgetStatus(budgets, txs, categories, month), [budgets, txs, categories, month]);
+  const stats = useMemo(() => monthStats(txs, categories, month, itemsByTx), [txs, categories, month, itemsByTx]);
+  const bs = useMemo(() => budgetStatus(budgets, txs, categories, month, itemsByTx), [budgets, txs, categories, month, itemsByTx]);
   const nw = useMemo(() => netWorth(balances, new Set(accounts.filter((a) => a.archived).map((a) => a.id))), [balances, accounts]);
   const total = nw.net;
   const proj = useMemo(() => projectMonthEnd(txs, month, new Date()), [txs, month]);

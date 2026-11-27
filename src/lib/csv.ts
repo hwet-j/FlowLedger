@@ -1,4 +1,4 @@
-import type { Account, Category, Tx } from './types';
+import type { Account, Category, Tx, TxItem } from './types';
 import { TYPE_LABEL } from './types';
 
 const HEADER = ['날짜', '시간', '유형', '금액', '통장', '입금통장', '대분류', '소분류', '가맹점', '메모', '태그', '출처'];
@@ -27,4 +27,21 @@ export function toCsv(txs: Tx[], accounts: Account[], cats: Category[]): string 
       ].map(cell).join(',');
     });
   return `﻿${[HEADER.join(','), ...rows].join('\r\n')}\r\n`;
+}
+
+/** 영수증 품목 CSV: 날짜·가맹점·품목·수량·단가·금액·분류(대/소) */
+export function itemsToCsv(txs: Tx[], items: TxItem[], cats: Category[]): string {
+  const byId = new Map(txs.map((t) => [t.id, t]));
+  const cat = new Map(cats.map((c) => [c.id, c]));
+  const header = ['날짜', '가맹점', '품목', '수량', '단가', '금액', '대분류', '소분류'];
+  const rows = items
+    .map((i) => ({ i, t: byId.get(i.transaction_id) }))
+    .filter((x): x is { i: TxItem; t: Tx } => !!x.t)
+    .sort((a, b) => a.t.date.localeCompare(b.t.date) || a.i.sort - b.i.sort)
+    .map(({ i, t }) => {
+      const c = cat.get(i.category_id ?? t.category_id ?? '');
+      const parent = c?.parent_id ? cat.get(c.parent_id) : undefined;
+      return [t.date, t.merchant, i.name, i.qty, i.unit_price, i.amount, parent ? parent.name : c?.name, parent ? c?.name : ''].map(cell).join(',');
+    });
+  return `﻿${[header.join(','), ...rows].join('\r\n')}\r\n`;
 }

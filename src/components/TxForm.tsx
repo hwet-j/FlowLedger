@@ -1,21 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Directory, File, Paths } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { insertTx, saveTemplate, updateTx, type TxInput } from '../db/repo';
+import { insertTx, saveTemplate, uid, updateTx, type TxInput } from '../db/repo';
 import { resolveAccount } from '../lib/accounts';
 import { fmtDateLabel, hm, isHm, isYmd, parseYmd, ymd } from '../lib/dates';
 import { norm } from '../lib/match';
-import { fmtNum, parseAmount } from '../lib/money';
+import { itemsSum, lineTotal, validateItems } from '../lib/items';
+import { fmtNum, parseAmount, parseSigned } from '../lib/money';
 import { MISC_EXPENSE_ID, MISC_INCOME_ID } from '../lib/seed';
-import { TYPE_LABEL, type Tx, type TxType } from '../lib/types';
+import { TYPE_LABEL, type ItemInput, type Tx, type TxType } from '../lib/types';
 import { useLedger } from '../store';
 import { R, useTheme } from '../theme';
 import { catStyle } from './TxRow';
+import { CategoryPicker } from './CategoryPicker';
 import { Button, Chip, Field } from './ui';
 
 export interface FormInit {
@@ -33,11 +37,24 @@ export interface FormInit {
 
 const QUICK = [1_000, 10_000, 50_000];
 
+interface Row { key: string; name: string; qty: string; unit: string; amount: string; categoryId: string | null; open: boolean }
+let rowSeq = 0;
+const newRow = (p: Partial<Row> = {}): Row => ({ key: `r${++rowSeq}`, name: '', qty: '1', unit: '', amount: '', categoryId: null, open: false, ...p });
+
+/** 화면 행 → 품목 입력값. 금액을 비워 두고 단가가 있으면 수량×단가 */
+function toInput(r: Row): ItemInput {
+  const q = parseFloat(r.qty.replace(',', '.'));
+  const qty = q > 0 && Number.isFinite(q) ? q : 1;
+  const unit = r.unit.trim() ? parseSigned(r.unit) : null;
+  const amount = r.amount.trim() ? parseSigned(r.amount) : lineTotal(qty, unit) ?? 0;
+  return { name: r.name.trim(), qty, unit_price: unit, amount, category_id: r.categoryId };
+}
+
 /** 거래 입력/수정 시트. 통장은 (직접 선택 > 규칙 > 기본 통장) 순으로 자동 선택된다 */
 export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { accounts, categories, catById, rules, txs, templates, mutate, removeTx, quickRecord } = useLedger();
+  const { accounts, categories, catById, rules, txs, templates, itemsByTx, mutate, removeTx, quickRecord } = useLedger();
   const base: FormInit = edit
     ? { type: edit.type, amount: edit.amount, date: edit.date, time: edit.time, accountId: edit.account_id, toAccountId: edit.to_account_id, categoryId: edit.category_id,
         merchant: edit.merchant ?? '', memo: edit.memo ?? '', tags: edit.tags ?? '' }
@@ -58,9 +75,20 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
   const [saving, setSaving] = useState(false);
   const [merchantFocus, setMerchantFocus] = useState(false);
 
+  // ---- 영수증 품목 / 사진
+  const existingItems = edit ? itemsByTx.get(edit.id) ?? [] : [];
+  const [useItems, setUseItems] = useState(existingItems.length > 0);
+  const [rows, setRows] = useState<Row[]>(() => existingItems.map((i) => newRow({
+    name: i.name, qty: String(i.qty), unit: i.unit_price === null ? '' : String(i.unit_price), amount: String(i.amount), categoryId: i.category_id })));
+  const [receipt, setReceipt] = useState<string | null>(edit?.receipt_uri ?? null);
+  const [bigReceipt, setBigReceipt] = useState(false);
+
   const active = useMemo(() => accounts.filter((a) => !a.archived), [accounts]);
-  const amount = parseAmount(amountText);
   const isTransfer = type === 'transfer';
+  const itemMode = useItems && type === 'expense';
+  const itemInputs = useMemo(() => rows.map(toInput), [rows]);
+  const amount = itemMode ? itemsSum(itemInputs) : parseAmount(amountText);
+  const setRow = (key: string, p: Partial<Row>) => setRows((l) => l.map((r) => (r.key === key ? { ...r, ...p } : r)));
 
   // ---- 통장 자동 선택: 직접 고르기 전까지 가맹점/메모/카테고리에 맞춰 규칙 → 기본 통장 순으로
   const auto = useMemo(
@@ -111,7 +139,12 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
   const bump = (n: number) => { Haptics.selectionAsync().catch(() => {}); setAmountText(fmtNum(amount + n)); };
 
   const save = async (again: boolean) => {
-    if (amount <= 0) return Alert.alert('금액을 입력해 주세요');
+    if (amount <= 0) return Alert.alert(itemMode ? '품목 금액의 합계가 0보다 커야 해요' : '금액을 입력해 주세요');
+    if (itemMode) {
+      if (!rows.length) return Alert.alert('품목을 추가해 주세요', '품목 없이 총액만 기록하려면 "영수증 품목으로 입력"을 끄세요.');
+      const err = validateItems(itemInputs, amount);
+      if (err) return Alert.alert('품목을 확인해 주세요', err);
+    }
     if (!accountId) return Alert.alert('통장을 선택해 주세요');
     if (isTransfer && (!toAccountId || toAccountId === accountId)) return Alert.alert('입금 통장은 출금 통장과 달라야 해요');
     setSaving(true);
@@ -119,12 +152,13 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
       const cat = isTransfer ? null : categoryId ?? (type === 'income' ? MISC_INCOME_ID : MISC_EXPENSE_ID);
       const input: TxInput = {
         type, amount, date, time, account_id: accountId, to_account_id: isTransfer ? toAccountId : null, category_id: cat,
-        merchant: merchant.trim() || null, memo: memo.trim() || null, tags: tags.trim() || null,
+        merchant: merchant.trim() || null, memo: memo.trim() || null, tags: tags.trim() || null, receipt_uri: receipt,
       };
-      await mutate(async (db) => { if (edit) await updateTx(db, edit.id, input); else await insertTx(db, input); });
+      const items = itemMode ? itemInputs : [];
+      await mutate(async (db) => { if (edit) await updateTx(db, edit.id, input, items); else await insertTx(db, input, undefined, items); });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       if (again && !edit) {
-        setAmountText(''); setMerchant(''); setMemo(''); setTags(''); setTime(null); setCategoryId(null);
+        setAmountText(''); setMerchant(''); setMemo(''); setTags(''); setTime(null); setCategoryId(null); setRows([]); setReceipt(null);
         if (!base.accountId) setAccountTouched(false);
       } else router.back();
     } catch (e) {
@@ -132,6 +166,42 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const toggleItems = () => {
+    if (!useItems) {
+      setUseItems(true);
+      // 이미 입력한 총액이 있으면 첫 품목으로 옮겨 준다
+      if (!rows.length) setRows([newRow({ name: merchant.trim(), amount: amountText ? String(parseAmount(amountText)) : '' })]);
+      return;
+    }
+    if (!rows.length) { setUseItems(false); return; }
+    Alert.alert('품목 입력을 끌까요?', '입력한 품목은 지워지고, 총액만 남아요.', [
+      { text: '취소', style: 'cancel' },
+      { text: '끄기', style: 'destructive', onPress: () => { setAmountText(amount ? fmtNum(amount) : ''); setRows([]); setUseItems(false); } },
+    ]);
+  };
+
+  const attach = async (from: 'camera' | 'library') => {
+    try {
+      const perm = from === 'camera' ? await ImagePicker.requestCameraPermissionsAsync() : { granted: true };
+      if (!perm.granted) return Alert.alert('카메라 권한이 필요해요', '휴대폰 설정에서 카메라 권한을 허용해 주세요.');
+      const r = from === 'camera' ? await ImagePicker.launchCameraAsync({ quality: 0.7 }) : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7 });
+      if (r.canceled || !r.assets?.[0]) return;
+      // 선택기가 주는 임시 파일은 사라질 수 있어 앱 문서 폴더로 복사해 둔다
+      const dir = new Directory(Paths.document, 'receipts');
+      dir.create({ idempotent: true, intermediates: true });
+      const dest = new File(dir, `${uid()}.jpg`);
+      new File(r.assets[0].uri).copy(dest);
+      if (receipt) { try { new File(receipt).delete(); } catch { /* 이미 없으면 무시 */ } }
+      setReceipt(dest.uri);
+    } catch (e) {
+      Alert.alert('사진을 가져오지 못했어요', e instanceof Error ? e.message : String(e));
+    }
+  };
+  const removeReceipt = () => {
+    if (receipt) { try { new File(receipt).delete(); } catch { /* 이미 없으면 무시 */ } }
+    setReceipt(null);
   };
 
   const saveAsTemplate = async () => {
@@ -180,16 +250,67 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
         <View style={{ backgroundColor: t.card, borderRadius: R.lg, padding: 16, gap: 10 }}>
           <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub }}>금액</Text>
           <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-            <TextInput value={amountText} onChangeText={(s) => { const n = parseAmount(s); setAmountText(n ? fmtNum(n) : ''); }}
-              keyboardType="number-pad" placeholder="0" placeholderTextColor={t.faint} autoFocus={!edit} accessibilityLabel="금액"
-              style={{ flex: 1, fontSize: 38, fontWeight: '800', color: typeColor, padding: 0 }} />
+            {itemMode ? (
+              <Text accessibilityLabel="금액 (품목 합계)" style={{ flex: 1, fontSize: 38, fontWeight: '800', color: typeColor }}>{amount ? fmtNum(amount) : '0'}</Text>
+            ) : (
+              <TextInput value={amountText} onChangeText={(s) => { const n = parseAmount(s); setAmountText(n ? fmtNum(n) : ''); }}
+                keyboardType="number-pad" placeholder="0" placeholderTextColor={t.faint} autoFocus={!edit} accessibilityLabel="금액"
+                style={{ flex: 1, fontSize: 38, fontWeight: '800', color: typeColor, padding: 0 }} />
+            )}
             <Text style={{ fontSize: 22, fontWeight: '700', color: t.sub }}>원</Text>
           </View>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {QUICK.map((n) => <Chip key={n} label={`+${fmtNum(n)}`} onPress={() => bump(n)} />)}
-            {!!amount && <Chip label="지움" onPress={() => setAmountText('')} />}
-          </View>
+          {itemMode ? <Text style={{ fontSize: 12.5, color: t.sub }}>품목 금액의 합계가 총액이 돼요.</Text> : (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {QUICK.map((n) => <Chip key={n} label={`+${fmtNum(n)}`} onPress={() => bump(n)} />)}
+              {!!amount && <Chip label="지움" onPress={() => setAmountText('')} />}
+            </View>
+          )}
         </View>
+
+        {type === 'expense' && (
+          <View style={{ gap: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Chip label="영수증 품목으로 입력" icon="receipt-outline" on={useItems} onPress={toggleItems} />
+            </View>
+            {itemMode && (
+              <>
+                {rows.map((r, idx) => {
+                  const inp = itemInputs[idx];
+                  const cat = r.categoryId ? catById.get(r.categoryId) : undefined;
+                  const small = { flex: 1, height: 44, borderRadius: R.sm, paddingHorizontal: 10, fontSize: 15, color: t.text, backgroundColor: t.input } as const;
+                  return (
+                    <View key={r.key} style={{ backgroundColor: t.card, borderRadius: R.md, padding: 12, gap: 8 }}>
+                      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                        <Text style={{ width: 22, fontWeight: '800', color: t.sub }}>{idx + 1}</Text>
+                        <TextInput value={r.name} onChangeText={(name) => setRow(r.key, { name })} placeholder="품목 이름 (예: 우유 1L)" placeholderTextColor={t.faint}
+                          accessibilityLabel={`${idx + 1}번 품목 이름`} style={{ ...small, flex: 3 }} />
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 8 }}>
+                        <TextInput value={r.qty} onChangeText={(qty) => setRow(r.key, { qty })} keyboardType="decimal-pad" placeholder="수량" placeholderTextColor={t.faint} accessibilityLabel="수량" style={small} />
+                        <TextInput value={r.unit} onChangeText={(unit) => setRow(r.key, { unit })} keyboardType="numbers-and-punctuation" placeholder="단가" placeholderTextColor={t.faint} accessibilityLabel="단가" style={small} />
+                        <TextInput value={r.amount} onChangeText={(a) => setRow(r.key, { amount: a })} keyboardType="numbers-and-punctuation"
+                          placeholder={inp.unit_price !== null ? fmtNum(inp.amount) : '금액'} placeholderTextColor={t.faint} accessibilityLabel="금액" style={{ ...small, flex: 1.3, fontWeight: '700' }} />
+                      </View>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                        <Chip label={cat ? `분류: ${cat.name}` : '분류: 거래와 같음'} on={!!cat} onPress={() => setRow(r.key, { open: !r.open })} />
+                        <Chip label="삭제" onPress={() => setRows((l) => l.filter((x) => x.key !== r.key))} icon="trash-outline" />
+                        {inp.amount < 0 && <Text style={{ color: t.income, fontWeight: '700' }}>할인 {fmtNum(-inp.amount)}원</Text>}
+                      </View>
+                      {r.open && <CategoryPicker type="expense" value={r.categoryId} onChange={(categoryId) => setRow(r.key, { categoryId })} allowNone noneLabel="거래 분류와 같음" />}
+                    </View>
+                  );
+                })}
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  <Chip label="+ 품목 추가" onPress={() => setRows((l) => [...l, newRow()])} />
+                  <Chip label="+ 할인/쿠폰" onPress={() => setRows((l) => [...l, newRow({ name: '할인', amount: '-' })])} />
+                </View>
+                <Text style={{ fontSize: 12.5, color: t.sub, marginLeft: 4 }}>
+                  품목 {rows.length}개 · 합계 {fmtNum(amount)}원. 분류를 정한 품목은 통계·예산에서 그 분류로 계산돼요. 할인은 금액에 -를 붙여 입력해요.
+                </Text>
+              </>
+            )}
+          </View>
+        )}
 
         {!isTransfer && (
           <View style={{ gap: 10 }}>
@@ -270,6 +391,29 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
           </View>
           <Field label="메모" value={memo} onChangeText={setMemo} placeholder="선택" />
           <Field label="태그 (쉼표로 구분)" value={tags} onChangeText={setTags} placeholder="예: 출장, 선물" autoCapitalize="none" />
+        </View>
+
+        <View style={{ gap: 8 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub, marginLeft: 4 }}>영수증 사진</Text>
+          {receipt ? (
+            <View style={{ gap: 8 }}>
+              <Pressable onPress={() => setBigReceipt((b) => !b)} accessibilityRole="button" accessibilityLabel="영수증 사진 크게 보기">
+                <Image source={{ uri: receipt }} resizeMode="contain" style={{ width: '100%', height: bigReceipt ? 440 : 150, borderRadius: R.md, backgroundColor: t.input }} />
+              </Pressable>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Chip label={bigReceipt ? '작게' : '크게 보기'} onPress={() => setBigReceipt((b) => !b)} />
+                <Chip label="사진 삭제" icon="trash-outline" onPress={removeReceipt} />
+              </View>
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Chip label="카메라" icon="camera-outline" onPress={() => attach('camera')} />
+              <Chip label="앨범" icon="image-outline" onPress={() => attach('library')} />
+            </View>
+          )}
+          <Text style={{ fontSize: 12, color: t.faint, lineHeight: 17, marginLeft: 4 }}>
+            이 앱은 영수증을 자동으로 읽지 않아요. 비서 앱에 영수증 사진을 보여 주면 품목째 기록해 줘요. 사진은 이 기기에만 보관되고 백업 파일에는 포함되지 않아요.
+          </Text>
         </View>
 
         <View style={{ gap: 8 }}>

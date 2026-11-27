@@ -1,5 +1,6 @@
 import { isHm, isYmd } from './dates';
-import type { Account, AccountRule, Budget, Category, Goal, Recurring, Template, Tx } from './types';
+import { validateItems } from './items';
+import type { Account, AccountRule, Budget, Category, Goal, Recurring, Template, Tx, TxItem } from './types';
 
 export interface BackupData {
   v: 1;
@@ -14,6 +15,8 @@ export interface BackupData {
   /** v1.0 초기 백업에는 없을 수 있음 */
   templates?: Template[];
   goals?: Goal[];
+  /** 영수증 품목 (이전 백업에는 없을 수 있음) */
+  items?: TxItem[];
 }
 
 export const makeBackup = (d: Omit<BackupData, 'v' | 'app' | 'exported_at'>, now: Date = new Date()): string =>
@@ -63,6 +66,18 @@ export function validateBackup(raw: unknown): { ok: true; data: BackupData } | {
   (d.recurring as Recurring[]).forEach((r) => {
     if (!accIds.has(r.account_id) || !isInt(r.amount) || r.amount <= 0 || !(r.day >= 1 && r.day <= 31) || !isYmd(r.start_date)) errors.push(`고정거래 "${r.merchant ?? r.id}" 값이 올바르지 않아요`);
   });
+  const txById = new Map((d.transactions as Tx[]).map((t) => [t.id, t]));
+  const itemsByTx = new Map<string, TxItem[]>();
+  for (const i of d.items ?? []) {
+    const t = txById.get(i.transaction_id);
+    if (!t || t.type !== 'expense' || !i.id) { errors.push(`품목 "${i.name ?? i.id}" 이 연결된 지출 거래가 없어요`); continue; }
+    if (i.category_id && !catIds.has(i.category_id)) errors.push(`품목 "${i.name}" 의 카테고리가 없어요`);
+    itemsByTx.set(i.transaction_id, [...(itemsByTx.get(i.transaction_id) ?? []), i]);
+  }
+  for (const [id, list] of itemsByTx) {
+    const e = validateItems(list.map((i) => ({ name: i.name, qty: i.qty ?? 1, unit_price: i.unit_price ?? null, amount: i.amount, category_id: i.category_id ?? null })), txById.get(id)?.amount);
+    if (e) errors.push(`거래 ${txById.get(id)?.date ?? id}: ${e}`);
+  }
   (d.templates ?? []).forEach((x) => {
     if (!x.name || !isInt(x.amount) || x.amount <= 0 || (x.account_id && !accIds.has(x.account_id)) || (x.category_id && !catIds.has(x.category_id))) errors.push(`즐겨찾기 "${x.name ?? x.id}" 값이 올바르지 않아요`);
   });

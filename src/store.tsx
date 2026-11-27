@@ -10,7 +10,8 @@ import { fmtNum } from './lib/money';
 import { monthKey, todayStr } from './lib/dates';
 import { MISC_EXPENSE_ID, MISC_INCOME_ID } from './lib/seed';
 import { alertsDue, budgetStatus } from './lib/stats';
-import type { Account, Category, Template, Tx } from './lib/types';
+import { groupItems } from './lib/items';
+import type { Account, Category, Template, Tx, TxItem } from './lib/types';
 
 export interface Settings { appLock: boolean; budgetAlerts: boolean }
 export interface Notice { text: string; action?: { label: string; run: () => Promise<void> } }
@@ -22,6 +23,8 @@ interface Ctx extends Snapshot {
   setSetting<K extends keyof Settings>(key: K, value: Settings[K]): Promise<void>;
   balances: Map<string, number>;
   accountById: Map<string, Account>;
+  /** 거래 id → 영수증 품목 */
+  itemsByTx: Map<string, TxItem[]>;
   catById: Map<string, Category>;
   /** 마지막으로 자동 생성된 고정 거래 수 (홈 배너용) */
   recurringCreated: number;
@@ -38,7 +41,7 @@ interface Ctx extends Snapshot {
   clearNotice(): void;
 }
 
-const EMPTY: Snapshot = { accounts: [], categories: [], txs: [], budgets: [], recurring: [], rules: [], templates: [], goals: [] };
+const EMPTY: Snapshot = { accounts: [], categories: [], txs: [], budgets: [], recurring: [], rules: [], templates: [], goals: [], items: [] };
 const DEFAULT_SETTINGS: Settings = { appLock: false, budgetAlerts: true };
 const C = createContext<Ctx>(null as never);
 export const useLedger = () => useContext(C);
@@ -108,9 +111,10 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const removeTx = useCallback(async (t: Tx) => {
+    const items = snap.items.filter((i) => i.transaction_id === t.id);
     await mutate((db) => deleteTx(db, t.id));
-    showNotice({ text: `삭제했어요 · ${t.merchant ?? ''} ${fmtNum(t.amount)}원`, action: { label: '되돌리기', run: async () => { await mutate((db) => restoreTx(db, t)); } } });
-  }, [mutate, showNotice]);
+    showNotice({ text: `삭제했어요 · ${t.merchant ?? ''} ${fmtNum(t.amount)}원`, action: { label: '되돌리기', run: async () => { await mutate((db) => restoreTx(db, t, items)); } } });
+  }, [mutate, showNotice, snap.items]);
 
   const quickRecord = useCallback(async (tpl: Template) => {
     const acc = tpl.account_id
@@ -137,11 +141,11 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const month = monthKey(new Date());
-        const due = alertsDue(budgetStatus(snap.budgets, snap.txs, snap.categories, month), month, new Set());
+        const due = alertsDue(budgetStatus(snap.budgets, snap.txs, snap.categories, month, groupItems(snap.items)), month, new Set());
         if (!due.length) return;
         const db = await getDb();
         const sent = new Set<string>(JSON.parse((await kvGet(db, 'budget_alerts_sent')) ?? '[]'));
-        const fresh = alertsDue(budgetStatus(snap.budgets, snap.txs, snap.categories, month), month, sent);
+        const fresh = alertsDue(budgetStatus(snap.budgets, snap.txs, snap.categories, month, groupItems(snap.items)), month, sent);
         if (!fresh.length || cancelled) return;
         const perm = await Notifications.getPermissionsAsync();
         // 알림 권한이 없어도 "보냈다"고 기록하지 않는다(권한을 켠 뒤에 다시 시도)
@@ -158,12 +162,13 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [ready, settings.budgetAlerts, snap.budgets, snap.txs, snap.categories]);
+  }, [ready, settings.budgetAlerts, snap.budgets, snap.txs, snap.categories, snap.items]);
 
   const value = useMemo<Ctx>(() => ({
     ...snap, ready, error, settings, setSetting,
     balances: balances(snap.accounts, snap.txs),
     accountById: new Map(snap.accounts.map((a) => [a.id, a])),
+    itemsByTx: groupItems(snap.items),
     catById: new Map(snap.categories.map((c) => [c.id, c])),
     recurringCreated, dismissRecurring: () => setRecurringCreated(0),
     mutate, refresh, removeTx, quickRecord, notice, showNotice, clearNotice,

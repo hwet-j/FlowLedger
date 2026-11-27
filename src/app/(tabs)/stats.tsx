@@ -18,7 +18,7 @@ import { useTheme } from '../../theme';
 export default function StatsScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { txs, categories, accounts, catById, budgets } = useLedger();
+  const { txs, categories, accounts, catById, budgets, itemsByTx } = useLedger();
   const p = useLocalSearchParams<{ month?: string }>();
   const [period, setPeriod] = useState(monthKey(new Date()));
   // 딥링크 flowledger://stats?month=YYYY-MM (또는 YYYY)
@@ -28,7 +28,7 @@ export default function StatsScreen() {
   }, [p.month]);
   const [open, setOpen] = useState<string | null>(null);
   const isYear = period.length === 4;
-  const s = useMemo(() => monthStats(txs, categories, period), [txs, categories, period]);
+  const s = useMemo(() => monthStats(txs, categories, period, itemsByTx), [txs, categories, period, itemsByTx]);
   const acc = useMemo(() => byAccount(txs, period), [txs, period]);
   const wk = useMemo(() => byWeekday(txs, period), [txs, period]);
   const merchants = useMemo(() => topMerchants(txs, period, 5), [txs, period]);
@@ -36,7 +36,7 @@ export default function StatsScreen() {
   const nwTrend = useMemo(() => netWorthTrend(accounts, txs, isYear ? `${period}-12` : period, 12), [accounts, txs, period, isYear]);
   const shareReport = () => {
     const label = isYear ? `${period}년` : `${period.slice(0, 4)}년 ${Number(period.slice(5))}월`;
-    const bs = isYear ? [] : budgetStatus(budgets, txs, categories, period);
+    const bs = isYear ? [] : budgetStatus(budgets, txs, categories, period, itemsByTx);
     void Share.share({ message: monthlyReport(s, bs, label) });
   };
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '?';

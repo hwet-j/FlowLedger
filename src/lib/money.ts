@@ -17,3 +17,9 @@ export function parseAmount(s: string): number {
   const n = Number(d);
   return Number.isSafeInteger(n) ? n : 0;
 }
+
+/** 부호를 유지하는 정수 파싱 (할인·쿠폰 줄: "-1,000"). 비면 0 */
+export function parseSigned(s: string): number {
+  const n = parseAmount(s);
+  return /^\s*[-−]/.test(s) ? -n : n;
+}

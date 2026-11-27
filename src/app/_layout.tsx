@@ -51,6 +51,7 @@ function Shell() {
         <Stack.Screen name="more/backup" options={{ title: '백업 · 내보내기' }} />
         <Stack.Screen name="more/templates" options={{ title: '자주 쓰는 거래' }} />
         <Stack.Screen name="more/goals" options={{ title: '저축 목표' }} />
+        <Stack.Screen name="more/purchases" options={{ title: '구매 내역' }} />
         <Stack.Screen name="more/settings" options={{ title: '설정' }} />
       </Stack>
       <NoticeBar />

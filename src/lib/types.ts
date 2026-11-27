@@ -42,7 +42,24 @@ export interface Tx {
   recurring_id: string | null;
   created_at: string;
   updated_at: string;
+  /** 앱이 보관한 영수증 사진 경로 (앱 전용, 백업에는 경로만 들어가고 사진 파일은 포함되지 않음) */
+  receipt_uri: string | null;
 }
+
+export interface TxItem {
+  id: string;
+  transaction_id: string;
+  name: string;
+  qty: number;
+  unit_price: number | null;
+  /** 품목 금액(수량 반영 후). 할인/쿠폰 줄은 음수 */
+  amount: number;
+  category_id: string | null;
+  sort: number;
+}
+
+/** 입력 폼/비서가 넘기는 품목 (id 는 저장할 때 만든다) */
+export type ItemInput = Pick<TxItem, 'name' | 'qty' | 'unit_price' | 'amount' | 'category_id'>;
 
 export interface Budget {
   id: string;

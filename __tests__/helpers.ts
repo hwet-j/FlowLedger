@@ -13,6 +13,6 @@ let n = 0;
 export const tx = (p: Partial<Tx>): Tx => ({
   id: `t${++n}`, type: 'expense', amount: 1000, date: '2026-11-10', time: null, account_id: 'acc_main', to_account_id: null,
   category_id: 'cat_food_eat_out', merchant: null, memo: null, tags: null, source: 'app', source_ref: null, recurring_id: null,
-  created_at: NOW, updated_at: NOW, ...p,
+  created_at: NOW, updated_at: NOW, receipt_uri: null, ...p,
 });
 export const rule = (p: Partial<AccountRule>): AccountRule => ({ id: `r${++n}`, keyword: 'x', match: 'any', account_id: 'acc_card', created_at: NOW, ...p });

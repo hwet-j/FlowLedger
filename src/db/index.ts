@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 import { seedAccounts, seedCategories } from '../lib/seed';
-import { PRAGMAS, SCHEMA_V1, SCHEMA_VERSION } from './schema';
+import { MIGRATE_V2_ITEMS, PRAGMAS, SCHEMA_V1, SCHEMA_VERSION } from './schema';
 
 export const DB_NAME = 'flowledger.db';
 
@@ -42,6 +42,13 @@ async function migrate(db: SQLite.SQLiteDatabase) {
             k.id, k.name, k.type, k.parent_id, k.icon, k.color, k.sort, k.archived);
         }
       }
+    });
+    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  } else if (v < 2) {
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      const cols = await tx.getAllAsync<{ name: string }>('PRAGMA table_info(transactions)');
+      if (!cols.some((c) => c.name === 'receipt_uri')) await tx.execAsync('ALTER TABLE transactions ADD COLUMN receipt_uri TEXT');
+      await tx.execAsync(MIGRATE_V2_ITEMS);
     });
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   }

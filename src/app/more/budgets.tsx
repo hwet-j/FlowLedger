@@ -14,9 +14,9 @@ import { useTheme } from '../../theme';
 export default function BudgetsScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { budgets, txs, categories, mutate } = useLedger();
+  const { budgets, txs, categories, mutate, itemsByTx } = useLedger();
   const month = monthKey(new Date());
-  const st = useMemo(() => budgetStatus(budgets, txs, categories, month), [budgets, txs, categories, month]);
+  const st = useMemo(() => budgetStatus(budgets, txs, categories, month, itemsByTx), [budgets, txs, categories, month, itemsByTx]);
   const proj = useMemo(() => projectMonthEnd(txs, month, new Date()), [txs, month]);
   const [target, setTarget] = useState<string | null>(null); // null = 전체
   const [amount, setAmount] = useState('');

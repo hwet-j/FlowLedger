@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { restoreAll, wipeAll } from '../../db/repo';
 import { Button, Card, SectionTitle } from '../../components/ui';
 import { makeBackup, parseBackup } from '../../lib/backup';
-import { toCsv } from '../../lib/csv';
+import { itemsToCsv, toCsv } from '../../lib/csv';
 import { ymd } from '../../lib/dates';
 import { useLedger } from '../../store';
 import { useTheme } from '../../theme';
@@ -24,7 +24,7 @@ async function shareText(name: string, text: string, mime: string) {
 export default function BackupScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { accounts, categories, txs, budgets, recurring, rules, templates, goals, mutate } = useLedger();
+  const { accounts, categories, txs, budgets, recurring, rules, templates, goals, items, mutate } = useLedger();
   const [busy, setBusy] = useState(false);
   const today = ymd(new Date());
   const run = async (fn: () => Promise<void>) => {
@@ -33,7 +33,8 @@ export default function BackupScreen() {
   };
 
   const exportJson = () => run(() => shareText(`flowledger-backup-${today}.json`,
-    makeBackup({ accounts, categories, transactions: txs, budgets, recurring, rules, templates, goals }), 'application/json'));
+    makeBackup({ accounts, categories, transactions: txs, budgets, recurring, rules, templates, goals, items }), 'application/json'));
+  const exportItemsCsv = () => run(() => shareText(`flowledger-items-${today}.csv`, itemsToCsv(txs, items, categories), 'text/csv'));
   const exportCsv = () => run(() => shareText(`flowledger-${today}.csv`, toCsv(txs, accounts, categories), 'text/csv'));
 
   const restore = () => run(async () => {
@@ -58,7 +59,7 @@ export default function BackupScreen() {
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: insets.bottom + 40 }}>
       <Card style={{ gap: 10 }}>
         <Text style={{ fontWeight: '800', fontSize: 16, color: t.text }}>백업 (JSON)</Text>
-        <Text style={{ color: t.sub, lineHeight: 19 }}>모든 통장·내역·카테고리·예산·고정 거래·규칙을 파일 하나로 내보내요. 다른 폰으로 옮기거나 안전하게 보관할 때 쓰세요.</Text>
+        <Text style={{ color: t.sub, lineHeight: 19 }}>모든 통장·내역·품목·카테고리·예산·고정 거래·규칙을 파일 하나로 내보내요. 다른 폰으로 옮기거나 안전하게 보관할 때 쓰세요. (영수증 사진 파일은 포함되지 않아요)</Text>
         <Button title="백업 파일 내보내기" icon="share-outline" onPress={exportJson} disabled={busy} />
         <Button title="백업에서 복원" kind="soft" icon="download-outline" onPress={restore} disabled={busy} />
       </Card>
@@ -66,6 +67,7 @@ export default function BackupScreen() {
         <Text style={{ fontWeight: '800', fontSize: 16, color: t.text }}>CSV (엑셀·구글시트)</Text>
         <Text style={{ color: t.sub, lineHeight: 19 }}>전체 내역을 날짜순 표로 내보내요. 한글이 깨지지 않도록 UTF-8(BOM)로 만들어요.</Text>
         <Button title="CSV 내보내기" kind="soft" icon="document-text-outline" onPress={exportCsv} disabled={busy} />
+        <Button title="영수증 품목 CSV 내보내기" kind="soft" icon="receipt-outline" onPress={exportItemsCsv} disabled={busy} />
       </Card>
       <SectionTitle title="위험" />
       <Card style={{ gap: 10 }}>

@@ -16,8 +16,13 @@ const txs = [
   tx({ amount: 60_000, date: '2026-11-07', category_id: 'cat_shop_clothes', merchant: '무신사', account_id: 'acc_card', source: 'assistant' }),
   tx({ type: 'transfer', amount: 500_000, date: '2026-11-26', category_id: null, to_account_id: 'acc_cash' }),
   tx({ amount: 40_000, date: '2026-10-12' }),
+  tx({ id: 'mx', amount: 7_980, date: '2026-11-20', category_id: 'cat_food_grocery', merchant: '이마트' }),
 ];
 
+const mockItems = [
+  { id: 'it1', transaction_id: 'mx', name: '우유 1L', qty: 1, unit_price: null, amount: 2_980, category_id: null, sort: 0 },
+  { id: 'it2', transaction_id: 'mx', name: '세제', qty: 1, unit_price: 5_000, amount: 5_000, category_id: 'cat_shop_living', sort: 1 },
+];
 const mockLedger = {
   ready: true, error: null, accounts, categories: cats, txs,
   budgets: [{ id: 'b0', category_id: null, amount: 200_000 }, { id: 'b1', category_id: 'cat_food', amount: 30_000 }],
@@ -25,6 +30,7 @@ const mockLedger = {
   rules: [rule({ keyword: '넷플릭스', account_id: 'acc_card' })],
   templates: [{ id: 't1', name: '점심', type: 'expense', amount: 9000, account_id: null, to_account_id: null, category_id: 'cat_food_eat_out', merchant: null, memo: null, sort: 0 }],
   goals: [{ id: 'g1', name: '비상금', target: 1_000_000, account_id: 'acc_cash', saved: 0, due_date: '2027-06-30', created_at: NOW }],
+  items: mockItems, itemsByTx: new Map([['mx', mockItems]]),
   settings: { appLock: false, budgetAlerts: true }, setSetting: jest.fn(),
   balances: balances(accounts, txs),
   accountById: new Map(accounts.map((a) => [a.id, a])),
@@ -44,11 +50,12 @@ jest.mock('expo-router', () => ({
 jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }), SafeAreaProvider: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn(), notificationAsync: jest.fn(), NotificationFeedbackType: { Success: 'success' } }));
 jest.mock('expo-sqlite', () => ({}));
-jest.mock('expo-file-system', () => ({ File: class {}, Paths: { cache: '' } }));
+jest.mock('expo-file-system', () => ({ File: class {}, Directory: class {}, Paths: { cache: '', document: '' } }));
 jest.mock('expo-sharing', () => ({}));
 jest.mock('expo-document-picker', () => ({}));
 jest.mock('expo-local-authentication', () => ({ SecurityLevel: { NONE: 0 } }));
 jest.mock('expo-notifications', () => ({}));
+jest.mock('expo-image-picker', () => ({}));
 jest.mock('@react-native-community/datetimepicker', () => 'DateTimePicker');
 
 const render = async (el: React.ReactElement) => {
@@ -77,7 +84,7 @@ test('홈', async () => {
 test('내역: 목록과 달력 보기', async () => {
   const List = require('../src/app/(tabs)/list').default;
   const r = await render(<List />);
-  expect(text(r)).toContain('무신사'); // 긴 목록은 가상화돼 앞쪽 일부만 그려진다
+  expect(text(r)).toContain('월급'); // 긴 목록은 가상화돼 앞쪽 일부만 그려진다
   expect(text(r)).toContain('달력 보기');
 });
 
@@ -91,7 +98,7 @@ test('통계', async () => {
 });
 
 test('더보기 · 통장 · 규칙 · 카테고리 · 예산 · 고정 거래 · 템플릿 · 목표 · 설정 · 백업', async () => {
-  for (const path of ['(tabs)/more', 'more/accounts', 'more/rules', 'more/categories', 'more/budgets', 'more/recurring', 'more/templates', 'more/goals', 'more/settings', 'more/backup']) {
+  for (const path of ['(tabs)/more', 'more/accounts', 'more/rules', 'more/categories', 'more/budgets', 'more/recurring', 'more/templates', 'more/goals', 'more/settings', 'more/backup', 'more/purchases']) {
     const Screen = require(`../src/app/${path}`).default;
     const r = await render(<Screen />);
     expect(text(r).length).toBeGreaterThan(50);
@@ -103,6 +110,9 @@ test('입력 시트: 새 내역(규칙·기본 통장 안내)과 수정', async 
   const r = await render(<TxForm />);
   expect(text(r)).toContain('기본 통장으로 기록돼요');
   expect(text(r)).toContain('점심');
+  const withItems = await render(<TxForm edit={txs[txs.length - 1]} />);
+  expect(text(withItems)).toContain('품목 2개');
+  expect(text(withItems)).toContain('합계 7,980원');
   const e = await render(<TxForm edit={txs[1]} />);
   expect(text(e)).toContain('삭제');
   expect(e.root.findAllByProps({ value: '김밥천국' }).length).toBeGreaterThan(0); // 가맹점 입력칸에 채워짐

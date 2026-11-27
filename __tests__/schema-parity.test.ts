@@ -4,7 +4,8 @@ import path from 'node:path';
 import { SCHEMA_V1 } from '../src/db/schema';
 
 const squash = (s: string) => s.replace(/IF NOT EXISTS /g, '').replace(/\s+/g, ' ').replace(/\s*,\s*/g, ',').replace(/\s*\(\s*/g, '(').replace(/\s*\)\s*/g, ')').replace(/\s*([<>=])\s*/g, '$1').trim();
-const stmts = (sql: string) => sql.split(';').map(squash).filter(Boolean);
+// receipt_uri 는 앱 전용 컬럼(제공자는 다루지 않음)이라 위치가 달라도 비교에서 뺀다
+const stmts = (sql: string) => sql.split(';').map(squash).filter(Boolean).map((x) => x.replace(/,receipt_uri TEXT/g, ''));
 
 /** 비서 제공자(Kotlin)가 같은 SQLite 파일을 직접 열므로, 앱 스키마와 제공자 테스트 스키마의 공유 테이블이 어긋나면 안 된다 */
 test('앱 스키마와 제공자(Python 참조) 스키마의 공유 테이블이 같다', () => {

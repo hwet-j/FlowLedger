@@ -99,6 +99,18 @@ describe('백업/복원 검증', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.join()).toContain('중복');
   });
+  test('영수증 품목: 합계 불변식·연결 거래 검사, 정상 왕복', () => {
+    const d = base();
+    const t = tx({ id: 'rx', amount: 5_000, date: '2026-11-02' });
+    d.transactions = [t];
+    const good = { id: 'i1', transaction_id: 'rx', name: '우유', qty: 1, unit_price: null, amount: 5_000, category_id: null, sort: 0 };
+    expect(validateBackup({ v: 1, app: 'flowledger', ...d, items: [good] }).ok).toBe(true);
+    const bad = validateBackup({ v: 1, app: 'flowledger', ...d, items: [{ ...good, amount: 4_000 }] });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.errors.join()).toContain('품목 합계 4,000원 ≠ 총액 5,000원');
+    expect(validateBackup({ v: 1, app: 'flowledger', ...d, items: [{ ...good, transaction_id: 'ghost' }] }).ok).toBe(false);
+    expect(validateBackup({ v: 1, app: 'flowledger', ...d, items: [{ ...good, category_id: 'ghost' }] }).ok).toBe(false);
+  });
   test('규칙/고정거래의 통장 참조 검사', () => {
     const d = { ...base(), rules: [{ id: 'r', keyword: '넷플릭스', match: 'any' as const, account_id: 'ghost', created_at: NOW }] };
     expect(validateBackup({ v: 1, app: 'flowledger', ...d }).ok).toBe(false);

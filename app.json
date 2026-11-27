@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "FlowLedger",
+    "slug": "flowledger",
+    "scheme": "flowledger",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": { "supportsTablet": false, "bundleIdentifier": "com.hwetj.flowledger" },
+    "android": {
+      "package": "com.hwetj.flowledger",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F766E",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      ["expo-local-authentication", { "faceIDPermission": "앱 잠금 해제에 사용해요" }],
+      ["expo-notifications", { "color": "#0F766E", "icon": "./assets/notification-icon.png" }],
+      ["expo-image-picker", { "photosPermission": "영수증 사진을 고를 때 사용해요", "cameraPermission": "영수증을 촬영할 때 사용해요", "microphonePermission": false }],
+      ["expo-splash-screen", { "backgroundColor": "#0F766E", "image": "./assets/splash-icon.png", "imageWidth": 200 }]
+    ]
+  }
+}

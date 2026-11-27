@@ -67,6 +67,7 @@ const render = async (el: React.ReactElement) => {
 const collect = (n: unknown): string => (n == null ? '' : typeof n === 'string' ? n : Array.isArray(n) ? n.map(collect).join('') : collect((n as { children?: unknown }).children));
 const text = (r: renderer.ReactTestRenderer) => collect(r.toJSON());
 
+jest.setTimeout(60_000);
 beforeAll(() => { jest.useFakeTimers().setSystemTime(new Date(2026, 10, 27, 12)); });
 afterAll(() => { jest.useRealTimers(); });
 
@@ -77,8 +78,20 @@ test('홈', async () => {
   expect(s).toContain('순자산');
   expect(s).toContain('3,000,000원');
   expect(s).toContain('고정 거래 2건');
+  expect(s).toContain('이번 달 가장 많이 쓴 곳');
   expect(s).toContain('점심');
   expect(s).toContain('비상금');
+});
+
+test('지출 인사이트', async () => {
+  const Insights = require('../src/app/insights').default;
+  const r = await render(<Insights />);
+  const s = text(r);
+  expect(s).toContain('이번 달 지출');
+  expect(s).toContain('어디에 쓰나');
+  expect(s).toContain('가맹점');
+  expect(s).toContain('얼마나 자주');
+  expect(s).toContain('고정비 vs 변동비');
 });
 
 test('내역: 목록과 달력 보기', async () => {

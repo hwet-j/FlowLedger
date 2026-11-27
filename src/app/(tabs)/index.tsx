@@ -5,6 +5,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { catStyle, TxRow } from '../../components/TxRow';
+import { TopSpend } from '../../components/TopSpend';
 import { Bar, Card, Chip, Empty, SectionTitle } from '../../components/ui';
 import { netWorth } from '../../lib/accounts';
 import { monthKey, todayStr } from '../../lib/dates';
@@ -91,6 +92,8 @@ export default function Home() {
           </Text>
         )}
       </Card>
+
+      <View style={{ marginTop: 14 }}><TopSpend /></View>
 
       {bs.length > 0 && (
         <>

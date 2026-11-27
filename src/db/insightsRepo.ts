@@ -102,3 +102,12 @@ export async function undoImport(db: Db, batchId: string): Promise<number> {
 export async function loadBatches(db: Db): Promise<{ id: string; created_at: string; source: string; label: string | null; count: number }[]> {
   return db.getAllAsync('SELECT id, created_at, source, label, count FROM import_batches ORDER BY created_at DESC LIMIT 20');
 }
+
+/** 백업에 함께 담는 앱 전용 데이터 */
+export async function loadExtras(db: Db): Promise<{ merchant_aliases: { alias_key: string; canonical: string }[]; merchant_categories: { merchant_key: string; category_id: string }[] }> {
+  const [merchant_aliases, merchant_categories] = await Promise.all([
+    db.getAllAsync<{ alias_key: string; canonical: string }>('SELECT alias_key, canonical FROM merchant_aliases'),
+    db.getAllAsync<{ merchant_key: string; category_id: string }>('SELECT merchant_key, category_id FROM merchant_categories'),
+  ]);
+  return { merchant_aliases, merchant_categories };
+}

@@ -52,7 +52,7 @@ jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn(), notificationAsync:
 jest.mock('expo-sqlite', () => ({}));
 jest.mock('expo-file-system', () => ({ File: class {}, Directory: class {}, Paths: { cache: '', document: '' } }));
 jest.mock('expo-sharing', () => ({}));
-jest.mock('expo-document-picker', () => ({}));
+jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
 jest.mock('expo-local-authentication', () => ({ SecurityLevel: { NONE: 0 } }));
 jest.mock('expo-notifications', () => ({}));
 jest.mock('expo-image-picker', () => ({}));
@@ -94,6 +94,16 @@ test('지출 인사이트', async () => {
   expect(s).toContain('고정비 vs 변동비');
 });
 
+test('거래 가져오기: 시작 화면 안내', async () => {
+  const Import = require('../src/app/more/import').default;
+  const r = await render(<Import />);
+  const s = text(r);
+  expect(s).toContain('어느 통장의 내역인가요?');
+  expect(s).toContain('파일 선택');
+  expect(s).toContain('문자·알림 붙여넣기');
+  expect(s).toContain('비서 앱');
+});
+
 test('내역: 목록과 달력 보기', async () => {
   const List = require('../src/app/(tabs)/list').default;
   const r = await render(<List />);
@@ -111,7 +121,7 @@ test('통계', async () => {
 });
 
 test('더보기 · 통장 · 규칙 · 카테고리 · 예산 · 고정 거래 · 템플릿 · 목표 · 설정 · 백업', async () => {
-  for (const path of ['(tabs)/more', 'more/accounts', 'more/rules', 'more/categories', 'more/budgets', 'more/recurring', 'more/templates', 'more/goals', 'more/settings', 'more/backup', 'more/purchases']) {
+  for (const path of ['(tabs)/more', 'more/accounts', 'more/rules', 'more/categories', 'more/budgets', 'more/recurring', 'more/templates', 'more/goals', 'more/settings', 'more/backup', 'more/purchases', 'more/import']) {
     const Screen = require(`../src/app/${path}`).default;
     const r = await render(<Screen />);
     expect(text(r).length).toBeGreaterThan(50);

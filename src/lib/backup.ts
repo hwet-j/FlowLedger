@@ -17,6 +17,10 @@ export interface BackupData {
   goals?: Goal[];
   /** 영수증 품목 (이전 백업에는 없을 수 있음) */
   items?: TxItem[];
+  /** 가맹점 합치기 별칭 (이전 백업에는 없을 수 있음) */
+  merchant_aliases?: { alias_key: string; canonical: string }[];
+  /** 가져오기에서 학습한 가맹점 → 분류 */
+  merchant_categories?: { merchant_key: string; category_id: string }[];
 }
 
 export const makeBackup = (d: Omit<BackupData, 'v' | 'app' | 'exported_at'>, now: Date = new Date()): string =>
@@ -83,6 +87,12 @@ export function validateBackup(raw: unknown): { ok: true; data: BackupData } | {
   });
   (d.goals ?? []).forEach((x) => {
     if (!x.name || !isInt(x.target) || x.target <= 0 || (x.account_id && !accIds.has(x.account_id))) errors.push(`저축 목표 "${x.name ?? x.id}" 값이 올바르지 않아요`);
+  });
+  (d.merchant_aliases ?? []).forEach((a) => {
+    if (typeof a?.alias_key !== 'string' || !a.alias_key || typeof a.canonical !== 'string' || !a.canonical.trim()) errors.push('가맹점 별칭 값이 올바르지 않아요');
+  });
+  (d.merchant_categories ?? []).forEach((a) => {
+    if (typeof a?.merchant_key !== 'string' || !a.merchant_key || !catIds.has(a.category_id)) errors.push('가맹점 분류 학습 값이 올바르지 않아요');
   });
   (d.rules as AccountRule[]).forEach((r) => {
     if (!r.keyword || !accIds.has(r.account_id)) errors.push(`자동 지정 규칙 "${r.keyword ?? r.id}" 값이 올바르지 않아요`);

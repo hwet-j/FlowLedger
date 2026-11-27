@@ -274,7 +274,7 @@ export async function runRecurring(db: SQLiteDatabase, today: string): Promise<n
 export async function restoreAll(db: SQLiteDatabase, d: BackupData): Promise<void> {
   await db.withExclusiveTransactionAsync(async (tx) => {
     await tx.execAsync('PRAGMA defer_foreign_keys = ON');
-    for (const t of ['transaction_items', 'transactions', 'account_rules', 'recurring', 'budgets', 'templates', 'goals', 'categories', 'accounts']) await tx.runAsync(`DELETE FROM ${t}`);
+    for (const t of ['transaction_items', 'transactions', 'import_batches', 'merchant_categories', 'merchant_aliases', 'account_rules', 'recurring', 'budgets', 'templates', 'goals', 'categories', 'accounts']) await tx.runAsync(`DELETE FROM ${t}`);
     for (const a of d.accounts) {
       await tx.runAsync('INSERT INTO accounts(id,name,kind,initial_balance,is_default,archived,sort,created_at) VALUES(?,?,?,?,?,?,?,?)',
         a.id, a.name, a.kind, a.initial_balance, a.is_default ? 1 : 0, a.archived ? 1 : 0, a.sort ?? 0, a.created_at ?? nowIso());
@@ -308,12 +308,14 @@ export async function restoreAll(db: SQLiteDatabase, d: BackupData): Promise<voi
       await tx.runAsync('INSERT INTO goals(id,name,target,account_id,saved,due_date,created_at) VALUES(?,?,?,?,?,?,?)', x.id, x.name, x.target, x.account_id ?? null, x.saved ?? 0, x.due_date ?? null, x.created_at ?? nowIso());
     }
     for (const r of d.rules) await tx.runAsync('INSERT INTO account_rules(id,keyword,match,account_id,created_at) VALUES(?,?,?,?,?)', r.id, r.keyword, r.match, r.account_id, r.created_at ?? nowIso());
+    for (const a of d.merchant_aliases ?? []) await tx.runAsync('INSERT OR REPLACE INTO merchant_aliases(alias_key,canonical) VALUES(?,?)', a.alias_key, a.canonical);
+    for (const a of d.merchant_categories ?? []) await tx.runAsync('INSERT OR REPLACE INTO merchant_categories(merchant_key,category_id) VALUES(?,?)', a.merchant_key, a.category_id);
   });
 }
 
 export async function wipeAll(db: SQLiteDatabase): Promise<void> {
   await db.withExclusiveTransactionAsync(async (tx) => {
-    for (const t of ['transaction_items', 'transactions', 'account_rules', 'recurring', 'budgets']) await tx.runAsync(`DELETE FROM ${t}`);
+    for (const t of ['transaction_items', 'transactions', 'import_batches', 'account_rules', 'recurring', 'budgets']) await tx.runAsync(`DELETE FROM ${t}`);
   });
 }
 

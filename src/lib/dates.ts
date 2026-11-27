@@ -48,3 +48,14 @@ export const fmtMonthLabel = (month: string) => {
   const [y, m] = month.split('-').map(Number);
   return `${y}년 ${m}월`;
 };
+
+/** 달력 격자: 첫 주 앞쪽 빈칸(null) + 날짜들 (일요일 시작). 7의 배수 길이로 맞춘다 */
+export function monthCells(month: string): (string | null)[] {
+  const [y, m] = month.split('-').map(Number);
+  const lead = new Date(y, m - 1, 1).getDay();
+  const n = daysInMonth(y, m);
+  const cells: (string | null)[] = Array.from({ length: lead }, () => null);
+  for (let d = 1; d <= n; d++) cells.push(`${month}-${pad(d)}`);
+  while (cells.length % 7) cells.push(null);
+  return cells;
+}

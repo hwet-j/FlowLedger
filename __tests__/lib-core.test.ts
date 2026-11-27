@@ -1,5 +1,5 @@
 import { balances, resolveAccount, totalAssets } from '../src/lib/accounts';
-import { addMonths, fmtDateLabel, isHm, isMonth, isYmd, monthRange } from '../src/lib/dates';
+import { addMonths, fmtDateLabel, isHm, isMonth, isYmd, monthCells, monthRange } from '../src/lib/dates';
 import { matchAccount, matchCategory, norm } from '../src/lib/match';
 import { fmtShort, fmtSigned, fmtWon, parseAmount } from '../src/lib/money';
 import { seedCategories } from '../src/lib/seed';
@@ -37,6 +37,15 @@ describe('dates', () => {
     expect(addMonths('2026-11', 2)).toBe('2027-01');
     expect(addMonths('2026-01', -1)).toBe('2025-12');
     expect(monthRange('2028-02')).toEqual({ from: '2028-02-01', to: '2028-02-29' });
+  });
+  test('달력 격자: 앞 빈칸, 7의 배수', () => {
+    const c = monthCells('2026-11'); // 11/1 = 일요일
+    expect(c[0]).toBe('2026-11-01');
+    expect(c.filter(Boolean)).toHaveLength(30);
+    expect(c.length % 7).toBe(0);
+    const f = monthCells('2026-10'); // 10/1 = 목요일
+    expect(f.slice(0, 5)).toEqual([null, null, null, null, '2026-10-01']);
+    expect(monthCells('2028-02').filter(Boolean)).toHaveLength(29);
   });
   test('날짜 라벨', () => {
     const now = new Date(2026, 10, 27, 12);

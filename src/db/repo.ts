@@ -271,3 +271,10 @@ export async function wipeAll(db: SQLiteDatabase): Promise<void> {
     for (const t of ['transactions', 'account_rules', 'recurring', 'budgets']) await tx.runAsync(`DELETE FROM ${t}`);
   });
 }
+
+// ---- 설정 (kv)
+export async function kvGet(db: SQLiteDatabase, key: string): Promise<string | null> {
+  const r = await db.getFirstAsync<{ value: string }>('SELECT value FROM kv WHERE key=?', key);
+  return r?.value ?? null;
+}
+export const kvSet = (db: SQLiteDatabase, key: string, value: string) => db.runAsync('INSERT OR REPLACE INTO kv(key,value) VALUES(?,?)', key, value);

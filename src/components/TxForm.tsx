@@ -6,7 +6,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { insertTx, updateTx, type TxInput } from '../db/repo';
+import { insertTx, saveTemplate, updateTx, type TxInput } from '../db/repo';
 import { resolveAccount } from '../lib/accounts';
 import { fmtDateLabel, hm, isHm, isYmd, parseYmd, ymd } from '../lib/dates';
 import { norm } from '../lib/match';
@@ -37,7 +37,7 @@ const QUICK = [1_000, 10_000, 50_000];
 export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { accounts, categories, catById, rules, txs, mutate, removeTx } = useLedger();
+  const { accounts, categories, catById, rules, txs, templates, mutate, removeTx, quickRecord } = useLedger();
   const base: FormInit = edit
     ? { type: edit.type, amount: edit.amount, date: edit.date, time: edit.time, accountId: edit.account_id, toAccountId: edit.to_account_id, categoryId: edit.category_id,
         merchant: edit.merchant ?? '', memo: edit.memo ?? '', tags: edit.tags ?? '' }
@@ -134,6 +134,16 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
     }
   };
 
+  const saveAsTemplate = async () => {
+    if (amount <= 0) return Alert.alert('금액을 먼저 입력해 주세요');
+    const name = merchant.trim() || (sel?.name ?? TYPE_LABEL[type]);
+    await mutate((db) => saveTemplate(db, {
+      name, type, amount, account_id: accountTouched ? accountId : null, to_account_id: isTransfer ? toAccountId : null,
+      category_id: isTransfer ? null : categoryId, merchant: merchant.trim() || null, memo: memo.trim() || null,
+    }));
+    Alert.alert('자주 쓰는 거래로 저장했어요', `"${name}" — 입력 화면과 홈에서 한 번에 기록할 수 있어요.`);
+  };
+
   const del = () =>
     Alert.alert('이 내역을 삭제할까요?', `${edit?.merchant ?? TYPE_LABEL[type]} ${fmtNum(edit?.amount ?? 0)}원`, [
       { text: '취소', style: 'cancel' },
@@ -146,6 +156,18 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 18, paddingBottom: insets.bottom + 120 }} keyboardShouldPersistTaps="handled">
+        {!edit && templates.length > 0 && (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub, marginLeft: 4 }}>자주 쓰는 거래 (탭하면 오늘 날짜로 바로 기록)</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
+              {templates.map((x) => (
+                <Chip key={x.id} label={`${x.name} ${fmtNum(x.amount)}`} icon="flash" onPress={async () => {
+                  try { await quickRecord(x); router.back(); } catch (e) { Alert.alert('기록하지 못했어요', e instanceof Error ? e.message : String(e)); }
+                }} />
+              ))}
+            </ScrollView>
+          </View>
+        )}
         <View style={{ flexDirection: 'row', backgroundColor: t.input, borderRadius: R.md, padding: 4 }}>
           {(['expense', 'income', 'transfer'] as TxType[]).map((k) => (
             <Pressable key={k} onPress={() => setType(k)} accessibilityRole="button" accessibilityState={{ selected: type === k }}
@@ -253,6 +275,7 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
         <View style={{ gap: 8 }}>
           <Button title={saving ? '저장 중…' : edit ? '수정 저장' : '저장'} onPress={() => save(false)} disabled={saving} />
           {!edit && <Button title="저장하고 계속 입력" kind="soft" icon="add" onPress={() => save(true)} disabled={saving} />}
+          <Button title="자주 쓰는 거래로 저장" kind="soft" icon="flash" onPress={saveAsTemplate} disabled={saving} />
           {edit && <Button title="삭제" kind="danger" onPress={del} />}
         </View>
       </ScrollView>

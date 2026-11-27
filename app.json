@@ -22,6 +22,8 @@
     "plugins": [
       "expo-router",
       "expo-sqlite",
+      ["expo-local-authentication", { "faceIDPermission": "앱 잠금 해제에 사용해요" }],
+      ["expo-notifications", { "color": "#0F766E" }],
       ["expo-splash-screen", { "backgroundColor": "#0F766E", "image": "./assets/splash-icon.png", "imageWidth": 200 }]
     ]
   }

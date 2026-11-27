@@ -5,23 +5,26 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { catStyle, TxRow } from '../../components/TxRow';
-import { Bar, Card, Empty, SectionTitle } from '../../components/ui';
-import { totalAssets } from '../../lib/accounts';
+import { Bar, Card, Chip, Empty, SectionTitle } from '../../components/ui';
+import { netWorth } from '../../lib/accounts';
 import { monthKey, todayStr } from '../../lib/dates';
 import { fmtNum, fmtWon } from '../../lib/money';
-import { budgetStatus, dailyAllowance, monthStats } from '../../lib/stats';
+import { goalProgress } from '../../lib/goals';
+import { budgetStatus, dailyAllowance, monthStats, projectMonthEnd } from '../../lib/stats';
 import { useLedger } from '../../store';
 import { useTheme } from '../../theme';
 
 export default function Home() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { ready, error, accounts, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring } = useLedger();
+  const { ready, error, accounts, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, templates, goals, quickRecord } = useLedger();
   const month = monthKey(new Date());
   const today = todayStr();
   const stats = useMemo(() => monthStats(txs, categories, month), [txs, categories, month]);
   const bs = useMemo(() => budgetStatus(budgets, txs, categories, month), [budgets, txs, categories, month]);
-  const total = totalAssets(balances);
+  const nw = useMemo(() => netWorth(balances, new Set(accounts.filter((a) => a.archived).map((a) => a.id))), [balances, accounts]);
+  const total = nw.net;
+  const proj = useMemo(() => projectMonthEnd(txs, month, new Date()), [txs, month]);
   const active = accounts.filter((a) => !a.archived);
   const totalBudget = bs.find((b) => b.budget.category_id === null);
   const allowance = totalBudget ? dailyAllowance(totalBudget.remaining, today, month) : null;
@@ -40,8 +43,9 @@ export default function Home() {
       )}
 
       <Card style={{ gap: 4 }}>
-        <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub }}>총 자산</Text>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub }}>순자산</Text>
         <Text style={{ fontSize: 34, fontWeight: '800', color: total < 0 ? t.expense : t.text }}>{fmtWon(total)}</Text>
+        <Text style={{ fontSize: 12.5, color: t.sub }}>자산 {fmtWon(nw.assets)} · 부채 {fmtWon(nw.debt)}</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingTop: 10 }}>
           {active.map((a) => (
             <Pressable key={a.id} onPress={() => router.push({ pathname: '/list', params: { account: a.id } })} accessibilityRole="button"
@@ -52,6 +56,15 @@ export default function Home() {
           ))}
         </ScrollView>
       </Card>
+
+      {templates.length > 0 && (
+        <>
+          <SectionTitle title="자주 쓰는 거래 (탭하면 바로 기록)" />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+            {templates.map((x) => <Chip key={x.id} label={`${x.name} ${fmtNum(x.amount)}`} icon="flash" onPress={() => quickRecord(x).catch(() => {})} />)}
+          </ScrollView>
+        </>
+      )}
 
       <SectionTitle title={`${Number(month.slice(5))}월 요약`} />
       <Card>
@@ -69,6 +82,9 @@ export default function Home() {
             <Text style={{ fontSize: 18, fontWeight: '800', color: stats.net < 0 ? t.expense : t.text }}>{fmtWon(stats.net)}</Text>
           </View>
         </View>
+        {proj && stats.expense > 0 && (
+          <Text style={{ fontSize: 12.5, color: t.sub, marginTop: 10 }}>이 속도면 월말 예상 지출 <Text style={{ fontWeight: '800', color: t.text }}>{fmtWon(proj.projected)}</Text> (하루 평균 {fmtWon(Math.round(proj.dailyAvg))})</Text>
+        )}
         {stats.expenseDeltaPct !== null && (
           <Text style={{ fontSize: 12.5, color: t.sub, marginTop: 10 }}>
             지난달 같은 달 대비 지출 <Text style={{ fontWeight: '800', color: stats.expenseDelta > 0 ? t.expense : t.ok }}>{stats.expenseDelta > 0 ? '+' : ''}{fmtNum(stats.expenseDelta)}원 ({stats.expenseDeltaPct > 0 ? '+' : ''}{stats.expenseDeltaPct.toFixed(0)}%)</Text>
@@ -92,6 +108,26 @@ export default function Home() {
             {allowance !== null && totalBudget && totalBudget.remaining > 0 && (
               <Text style={{ fontSize: 12.5, color: t.sub }}>남은 기간 하루 {fmtWon(allowance)}까지 쓸 수 있어요</Text>
             )}
+          </Card>
+        </>
+      )}
+
+      {goals.length > 0 && (
+        <>
+          <SectionTitle title="저축 목표" right={<Pressable onPress={() => router.push('/more/goals')}><Text style={{ color: t.primary, fontWeight: '700' }}>관리</Text></Pressable>} />
+          <Card style={{ gap: 14 }}>
+            {goals.slice(0, 3).map((g) => {
+              const p = goalProgress(g, balances, today);
+              return (
+                <View key={g.id} style={{ gap: 6 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ fontWeight: '700', color: t.text }}>{g.name}</Text>
+                    <Text style={{ color: t.sub, fontWeight: '600' }}>{fmtNum(p.saved)} / {fmtNum(g.target)}원 · {Math.min(p.pct, 999).toFixed(0)}%</Text>
+                  </View>
+                  <Bar pct={p.pct} color={p.pct >= 100 ? t.ok : t.primary} />
+                </View>
+              );
+            })}
           </Card>
         </>
       )}

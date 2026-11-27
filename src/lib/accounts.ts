@@ -58,3 +58,47 @@ export function resolveAccount(opts: {
   const def = accounts.find((a) => a.is_default && !a.archived) ?? accounts.find((a) => !a.archived) ?? null;
   return { account: def, source: 'default' };
 }
+
+/** 자산(양수 잔액 합) / 부채(음수 잔액 절댓값 합: 대출·카드 포함) / 순자산(전체 합) */
+export function netWorth(balancesByAcc: Map<string, number>, archivedIds: Set<string> = new Set()): { assets: number; debt: number; net: number } {
+  let assets = 0, debt = 0;
+  for (const [id, b] of balancesByAcc) {
+    if (archivedIds.has(id) && b === 0) continue;
+    if (b >= 0) assets += b; else debt += -b;
+  }
+  return { assets, debt, net: assets - debt };
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const lastDayOf = (month: string) => {
+  const [y, m] = month.split('-').map(Number);
+  return `${month}-${pad2(new Date(y, m, 0).getDate())}`;
+};
+
+/**
+ * 월말 기준 순자산 추이(최근 n개월, 오래된 달부터). 현재 잔액에서 월말 이후의 거래 영향을 거꾸로 빼서 구한다.
+ * 이체는 순자산에 영향이 없다(양쪽 상쇄). 마지막 달(endMonth)이 이번 달이면 "현재"와 같다.
+ */
+export function netWorthTrend(
+  accounts: Pick<Account, 'id' | 'initial_balance'>[],
+  txs: Pick<Tx, 'type' | 'amount' | 'date' | 'account_id' | 'to_account_id'>[],
+  endMonth: string,
+  n = 12,
+): { month: string; net: number }[] {
+  const nowNet = [...balances(accounts, txs).values()].reduce((s, v) => s + v, 0);
+  const months = Array.from({ length: n }, (_, i) => {
+    const [y, m] = endMonth.split('-').map(Number);
+    const d = new Date(y, m - 1 - (n - 1 - i), 1);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+  });
+  return months.map((month) => {
+    const end = lastDayOf(month);
+    let delta = 0; // end 이후 거래가 순자산에 준 영향
+    for (const t of txs) {
+      if (t.date <= end) continue;
+      if (t.type === 'income') delta += t.amount;
+      else if (t.type === 'expense') delta -= t.amount;
+    }
+    return { month, net: nowNet - delta };
+  });
+}

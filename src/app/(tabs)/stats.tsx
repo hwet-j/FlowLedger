@@ -1,15 +1,16 @@
 import { router } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Donut, TrendBars, WeekdayBars } from '../../components/Charts';
+import { Donut, LineChart, TrendBars, WeekdayBars } from '../../components/Charts';
 import { MonthNav } from '../../components/MonthNav';
 import { catStyle } from '../../components/TxRow';
-import { Bar, Card, Chip, Empty, SectionTitle } from '../../components/ui';
+import { Bar, Button, Card, Chip, Empty, SectionTitle } from '../../components/ui';
+import { netWorthTrend } from '../../lib/accounts';
 import { monthKey, WEEKDAYS } from '../../lib/dates';
 import { fmtNum, fmtWon } from '../../lib/money';
-import { byAccount, byWeekday, monthStats, topMerchants, trend } from '../../lib/stats';
+import { budgetStatus, byAccount, byWeekday, monthlyReport, monthStats, topMerchants, trend } from '../../lib/stats';
 import { useLedger } from '../../store';
 import { useTheme } from '../../theme';
 
@@ -17,7 +18,7 @@ import { useTheme } from '../../theme';
 export default function StatsScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { txs, categories, accounts, catById } = useLedger();
+  const { txs, categories, accounts, catById, budgets } = useLedger();
   const [period, setPeriod] = useState(monthKey(new Date()));
   const [open, setOpen] = useState<string | null>(null);
   const isYear = period.length === 4;
@@ -26,6 +27,12 @@ export default function StatsScreen() {
   const wk = useMemo(() => byWeekday(txs, period), [txs, period]);
   const merchants = useMemo(() => topMerchants(txs, period, 5), [txs, period]);
   const tr = useMemo(() => trend(txs, isYear ? `${period}-12` : period, 12), [txs, period, isYear]);
+  const nwTrend = useMemo(() => netWorthTrend(accounts, txs, isYear ? `${period}-12` : period, 12), [accounts, txs, period, isYear]);
+  const shareReport = () => {
+    const label = isYear ? `${period}년` : `${period.slice(0, 4)}년 ${Number(period.slice(5))}월`;
+    const bs = isYear ? [] : budgetStatus(budgets, txs, categories, period);
+    void Share.share({ message: monthlyReport(s, bs, label) });
+  };
   const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '?';
   const colorOf = (id: string) => catStyle(catById.get(id), catById).color;
   const periodLabel = isYear ? `${period}년` : `${Number(period.slice(5))}월`;
@@ -92,6 +99,12 @@ export default function StatsScreen() {
       <SectionTitle title="최근 12개월 추이" />
       <Card><TrendBars data={tr.map((x) => ({ label: `${Number(x.month.slice(5))}`, income: x.income, expense: x.expense }))} selected={isYear ? 11 : 11} /></Card>
 
+      <SectionTitle title="순자산 추이 (월말 기준)" />
+      <Card style={{ gap: 6 }}>
+        <Text style={{ fontSize: 12, color: t.sub }}>현재 {fmtWon(nwTrend[nwTrend.length - 1]?.net ?? 0)}</Text>
+        <LineChart color={t.primary} points={nwTrend.map((x) => ({ label: `${x.month.slice(2, 4)}.${x.month.slice(5)}`, value: x.net }))} />
+      </Card>
+
       {acc.length > 0 && (
         <>
           <SectionTitle title="통장별 지출" />
@@ -126,6 +139,7 @@ export default function StatsScreen() {
           </Card>
         </>
       )}
+      <View style={{ marginTop: 18 }}><Button title={`${periodLabel} 리포트 공유`} kind="soft" icon="share-outline" onPress={shareReport} /></View>
     </ScrollView>
   );
 }

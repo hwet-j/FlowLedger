@@ -186,3 +186,41 @@ export function projectMonthEnd(txs: Tx[], month: string, now: Date): { spent: n
   const dailyAvg = spent / day;
   return { spent, dailyAvg, projected: Math.round(dailyAvg * total), daysLeft: total - day };
 }
+
+export interface BudgetAlert { key: string; title: string; body: string }
+
+/**
+ * 80% / 100% 도달 알림. sent 에 이미 보낸 키(`월:예산id:80|100`)가 있으면 건너뛴다.
+ * 100% 를 넘으면 80% 알림은 따로 보내지 않는다(둘 다 한꺼번에 오지 않게).
+ */
+export function alertsDue(statuses: BudgetStatus[], month: string, sent: ReadonlySet<string>): BudgetAlert[] {
+  const out: BudgetAlert[] = [];
+  for (const s of statuses) {
+    const k100 = `${month}:${s.budget.id}:100`;
+    const k80 = `${month}:${s.budget.id}:80`;
+    if (s.pct >= 100) {
+      if (!sent.has(k100)) out.push({ key: k100, title: `${s.label} 예산 초과`, body: `${s.spent.toLocaleString('ko-KR')}원 사용 — 예산 ${s.budget.amount.toLocaleString('ko-KR')}원을 ${(-s.remaining).toLocaleString('ko-KR')}원 넘었어요.` });
+    } else if (s.pct >= 80 && !sent.has(k80)) {
+      out.push({ key: k80, title: `${s.label} 예산 ${Math.floor(s.pct)}% 사용`, body: `${s.remaining.toLocaleString('ko-KR')}원 남았어요.` });
+    }
+  }
+  return out;
+}
+
+/** 월간 리포트 텍스트 (공유용) */
+export function monthlyReport(
+  s: MonthStats, budgets: BudgetStatus[], label: string, topN = 5,
+): string {
+  const won = (n: number) => `${n < 0 ? '-' : ''}${Math.abs(Math.round(n)).toLocaleString('ko-KR')}원`;
+  const lines = [`📊 ${label} 가계부 리포트`, '', `수입 ${won(s.income)}`, `지출 ${won(s.expense)}`, `수지 ${won(s.net)}`];
+  if (s.expenseDeltaPct !== null) lines.push(`전월 대비 지출 ${s.expenseDelta >= 0 ? '+' : '-'}${won(Math.abs(s.expenseDelta))} (${s.expenseDeltaPct >= 0 ? '+' : ''}${s.expenseDeltaPct.toFixed(0)}%)`);
+  if (s.byCategory.length) {
+    lines.push('', `지출 TOP ${Math.min(topN, s.byCategory.length)}`);
+    s.byCategory.slice(0, topN).forEach((c, i) => lines.push(`${i + 1}. ${c.name} ${won(c.total)} (${c.pct.toFixed(0)}%)`));
+  }
+  if (budgets.length) {
+    lines.push('', '예산');
+    budgets.forEach((b) => lines.push(`- ${b.label}: ${won(b.spent)} / ${won(b.budget.amount)} (${b.pct.toFixed(0)}%)${b.level === 'over' ? ' ⚠ 초과' : ''}`));
+  }
+  return lines.join('\n');
+}

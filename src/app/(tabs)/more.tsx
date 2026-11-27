@@ -16,7 +16,9 @@ export default function More() {
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 140, gap: 14 }}>
       <Text style={{ fontSize: 28, fontWeight: '800', color: t.text }}>더보기</Text>
       <Card>
+        <Row icon="download" label="거래 가져오기" sub="은행·카드 내역(CSV) · 승인/입출금 문자 붙여넣기" onPress={go('/more/import')} />
         <Row icon="wallet" label="통장 관리" sub={`${accounts.filter((a) => !a.archived).length}개 · 기본 통장 지정`} onPress={go('/more/accounts')} />
+        <Row icon="analytics" label="지출 인사이트" sub="어디에 가장 많이 쓰는지 · 새는 돈 · 정기 결제" onPress={go('/insights')} />
         <Row icon="git-branch" label="통장 자동 지정 규칙" sub={`${rules.length}개 · 가맹점·카테고리에 따라 통장 선택`} onPress={go('/more/rules')} />
         <Row icon="receipt" label="구매 내역" sub="영수증 품목 검색 · 누적 금액 · 최근 구입가 · 가격 추이" onPress={go('/more/purchases')} />
         <Row icon="pricetags" label="카테고리 관리" sub="추가·이름·색·소분류" onPress={go('/more/categories')} />

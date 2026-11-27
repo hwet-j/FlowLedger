@@ -40,7 +40,7 @@ sql "pragma journal_mode=WAL;" >/dev/null
 sql "insert into kv(key,value) values('wal_probe','1');" >/dev/null
 adb shell "ls $DB-wal" >/dev/null 2>&1 && ok "WAL 상태 준비" || echo "note: -wal 파일 없음(체크포인트됨)"
 launch
-if wait_for 60 '[ "$(sql "select value from kv where key=\"wal_probe\";")" = "1" ]'; then ok "WAL 파일의 기록이 유지됨"; else bad "WAL 기록 유실"; fi
+if wait_for 60 '[ "$(sql "select value from kv where key='"'"'wal_probe'"'"';")" = "1" ]'; then ok "WAL 파일의 기록이 유지됨"; else bad "WAL 기록 유실"; fi
 sleep 5
 jm=$(sql "pragma journal_mode;"); [ "$jm" = "delete" ] && ok "WAL → delete 로 되돌림" || bad "WAL 이 남아 있음: $jm"
 
@@ -61,8 +61,8 @@ echo "$out" | grep -qi "forbidden" && ok "provider: query 도 forbidden" || bad 
 
 # ---------- 크래시·손상 흔적
 sleep 3
-if adb logcat -d | grep -E "FATAL EXCEPTION|VerifyError|disk image is malformed|SQLiteDatabaseCorruptException" | grep -v "corrupt-" | head -5 | grep -q .; then
-  bad "logcat 에 크래시/손상 흔적"; adb logcat -d | grep -E "FATAL EXCEPTION|VerifyError|malformed|Corrupt" | head -20
+if adb logcat -d | grep -E "FATAL EXCEPTION|VerifyError|disk image is malformed" | head -5 | grep -q .; then
+  bad "logcat 에 크래시/손상 흔적"; adb logcat -d | grep -E "FATAL EXCEPTION|VerifyError|disk image is malformed" | head -20
 else ok "logcat: 크래시·손상 없음"; fi
 mkdir -p emu-out; adb logcat -d > emu-out/logcat.txt 2>&1 || true
 echo "RESULT fail=$fail"

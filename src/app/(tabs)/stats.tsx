@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -19,7 +19,13 @@ export default function StatsScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const { txs, categories, accounts, catById, budgets } = useLedger();
+  const p = useLocalSearchParams<{ month?: string }>();
   const [period, setPeriod] = useState(monthKey(new Date()));
+  // 딥링크 flowledger://stats?month=YYYY-MM (또는 YYYY)
+  useEffect(() => {
+    const m = Array.isArray(p.month) ? p.month[0] : p.month;
+    if (m && (/^\d{4}-(0[1-9]|1[0-2])$/.test(m) || /^\d{4}$/.test(m))) setPeriod(m);
+  }, [p.month]);
   const [open, setOpen] = useState<string | null>(null);
   const isYear = period.length === 4;
   const s = useMemo(() => monthStats(txs, categories, period), [txs, categories, period]);

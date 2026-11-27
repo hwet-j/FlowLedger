@@ -192,6 +192,14 @@ class Transfers(unittest.TestCase):
                 add(db, **kw)
             self.assertEqual(c.exception.code, "invalid", kw)
 
+    def test_loan_account_kind_accepted(self):
+        db = fresh()
+        second_account(db, "주택대출", "loan")  # kind CHECK 에 'loan' 포함
+        add(db, type="transfer", amount=300_000, to_account="주택대출")
+        bal = {a["name"]: a["balance"] for a in L.query(db)["accounts"]}
+        self.assertEqual(bal["주택대출"], 300_000)
+        self.assertEqual([a["kind"] for a in L.query(db)["accounts"] if a["name"] == "주택대출"], ["loan"])
+
     def test_card_goes_negative(self):
         db = fresh()
         second_account(db, "국민카드")

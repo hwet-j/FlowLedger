@@ -13,3 +13,5 @@ expo-env.d.ts
 npm-debug.*
 .metro-health-check*
 .DS_Store
+__pycache__/
+*.pyc

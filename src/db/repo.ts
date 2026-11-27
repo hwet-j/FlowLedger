@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { BackupData } from '../lib/backup';
 import { dueRuns } from '../lib/recurring';
-import type { Account, AccountRule, Budget, Category, Recurring, Tx } from '../lib/types';
+import type { Account, AccountRule, Budget, Category, Goal, Recurring, Template, Tx } from '../lib/types';
 
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const nowIso = () => new Date().toISOString();
@@ -14,18 +14,22 @@ export interface Snapshot {
   budgets: Budget[];
   recurring: Recurring[];
   rules: AccountRule[];
+  templates: Template[];
+  goals: Goal[];
 }
 
 export async function loadAll(db: SQLiteDatabase): Promise<Snapshot> {
-  const [accounts, categories, txs, budgets, recurring, rules] = await Promise.all([
+  const [accounts, categories, txs, budgets, recurring, rules, templates, goals] = await Promise.all([
     db.getAllAsync<Account>('SELECT * FROM accounts ORDER BY sort, created_at'),
     db.getAllAsync<Category>('SELECT * FROM categories ORDER BY type, sort, name'),
     db.getAllAsync<Tx>('SELECT * FROM transactions ORDER BY date DESC, time DESC, created_at DESC'),
     db.getAllAsync<Budget>('SELECT * FROM budgets'),
     db.getAllAsync<Recurring>('SELECT * FROM recurring ORDER BY day'),
     db.getAllAsync<AccountRule>('SELECT * FROM account_rules ORDER BY created_at'),
+    db.getAllAsync<Template>('SELECT * FROM templates ORDER BY sort, name'),
+    db.getAllAsync<Goal>('SELECT * FROM goals ORDER BY created_at'),
   ]);
-  return { accounts, categories, txs, budgets, recurring, rules };
+  return { accounts, categories, txs, budgets, recurring, rules, templates, goals };
 }
 
 // ---- 거래
@@ -157,6 +161,34 @@ export async function saveRule(db: SQLiteDatabase, r: Pick<AccountRule, 'keyword
 }
 export const deleteRule = (db: SQLiteDatabase, id: string) => db.runAsync('DELETE FROM account_rules WHERE id=?', id);
 
+// ---- 즐겨찾기 템플릿
+export async function saveTemplate(db: SQLiteDatabase, t: Omit<Template, 'id' | 'sort'> & { id?: string }): Promise<string> {
+  const id = t.id ?? uid();
+  const ex = t.id ? await db.getFirstAsync('SELECT 1 FROM templates WHERE id=?', t.id) : null;
+  const to = t.type === 'transfer' ? t.to_account_id : null;
+  const cat = t.type === 'transfer' ? null : t.category_id;
+  if (ex) {
+    await db.runAsync('UPDATE templates SET name=?,type=?,amount=?,account_id=?,to_account_id=?,category_id=?,merchant=?,memo=? WHERE id=?',
+      t.name, t.type, t.amount, t.account_id, to, cat, t.merchant ?? null, t.memo ?? null, id);
+  } else {
+    const max = await db.getFirstAsync<{ m: number | null }>('SELECT MAX(sort) AS m FROM templates');
+    await db.runAsync('INSERT INTO templates(id,name,type,amount,account_id,to_account_id,category_id,merchant,memo,sort) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      id, t.name, t.type, t.amount, t.account_id, to, cat, t.merchant ?? null, t.memo ?? null, (max?.m ?? 0) + 1);
+  }
+  return id;
+}
+export const deleteTemplate = (db: SQLiteDatabase, id: string) => db.runAsync('DELETE FROM templates WHERE id=?', id);
+
+// ---- 저축 목표
+export async function saveGoal(db: SQLiteDatabase, g: Omit<Goal, 'id' | 'created_at'> & { id?: string }): Promise<string> {
+  const id = g.id ?? uid();
+  const ex = g.id ? await db.getFirstAsync('SELECT 1 FROM goals WHERE id=?', g.id) : null;
+  if (ex) await db.runAsync('UPDATE goals SET name=?,target=?,account_id=?,saved=?,due_date=? WHERE id=?', g.name, g.target, g.account_id, g.saved, g.due_date, id);
+  else await db.runAsync('INSERT INTO goals(id,name,target,account_id,saved,due_date,created_at) VALUES(?,?,?,?,?,?,?)', id, g.name, g.target, g.account_id, g.saved, g.due_date, nowIso());
+  return id;
+}
+export const deleteGoal = (db: SQLiteDatabase, id: string) => db.runAsync('DELETE FROM goals WHERE id=?', id);
+
 // ---- 고정 거래
 export async function saveRecurring(db: SQLiteDatabase, r: Omit<Recurring, 'id' | 'last_run'> & { id?: string; last_run?: string | null }): Promise<string> {
   const id = r.id ?? uid();
@@ -201,7 +233,7 @@ export async function runRecurring(db: SQLiteDatabase, today: string): Promise<n
 export async function restoreAll(db: SQLiteDatabase, d: BackupData): Promise<void> {
   await db.withExclusiveTransactionAsync(async (tx) => {
     await tx.execAsync('PRAGMA defer_foreign_keys = ON');
-    for (const t of ['transactions', 'account_rules', 'recurring', 'budgets', 'categories', 'accounts']) await tx.runAsync(`DELETE FROM ${t}`);
+    for (const t of ['transactions', 'account_rules', 'recurring', 'budgets', 'templates', 'goals', 'categories', 'accounts']) await tx.runAsync(`DELETE FROM ${t}`);
     for (const a of d.accounts) {
       await tx.runAsync('INSERT INTO accounts(id,name,kind,initial_balance,is_default,archived,sort,created_at) VALUES(?,?,?,?,?,?,?,?)',
         a.id, a.name, a.kind, a.initial_balance, a.is_default ? 1 : 0, a.archived ? 1 : 0, a.sort ?? 0, a.created_at ?? nowIso());
@@ -222,6 +254,13 @@ export async function restoreAll(db: SQLiteDatabase, d: BackupData): Promise<voi
       await tx.runAsync(
         'INSERT INTO recurring(id,type,amount,account_id,to_account_id,category_id,merchant,memo,day,start_date,end_date,last_run,active) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
         r.id, r.type, r.amount, r.account_id, r.to_account_id ?? null, r.category_id ?? null, r.merchant ?? null, r.memo ?? null, r.day, r.start_date, r.end_date ?? null, r.last_run ?? null, r.active ? 1 : 0);
+    }
+    for (const x of d.templates ?? []) {
+      await tx.runAsync('INSERT INTO templates(id,name,type,amount,account_id,to_account_id,category_id,merchant,memo,sort) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        x.id, x.name, x.type, x.amount, x.account_id ?? null, x.to_account_id ?? null, x.category_id ?? null, x.merchant ?? null, x.memo ?? null, x.sort ?? 0);
+    }
+    for (const x of d.goals ?? []) {
+      await tx.runAsync('INSERT INTO goals(id,name,target,account_id,saved,due_date,created_at) VALUES(?,?,?,?,?,?,?)', x.id, x.name, x.target, x.account_id ?? null, x.saved ?? 0, x.due_date ?? null, x.created_at ?? nowIso());
     }
     for (const r of d.rules) await tx.runAsync('INSERT INTO account_rules(id,keyword,match,account_id,created_at) VALUES(?,?,?,?,?)', r.id, r.keyword, r.match, r.account_id, r.created_at ?? nowIso());
   });

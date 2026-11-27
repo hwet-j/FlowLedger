@@ -40,6 +40,12 @@ describe('월 통계', () => {
     expect(s.expenseDeltaPct).toBeCloseTo(124);
     expect(monthStats(data, cats, '2026-09').expenseDeltaPct).toBeNull();
   });
+  test('연 통계: YYYY 로 부르면 전년 대비', () => {
+    const y = monthStats(data, cats, '2026');
+    expect(y.expense).toBe(112_000 + 50_000);
+    expect(y.prevExpense).toBe(0);
+    expect(y.expenseDeltaPct).toBeNull();
+  });
   test('빈 달', () => {
     const e = monthStats([], cats, '2026-11');
     expect(e).toMatchObject({ income: 0, expense: 0, net: 0, byCategory: [] });

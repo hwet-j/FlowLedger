@@ -38,7 +38,8 @@ export function topCategoryId(categoryId: string | null, cats: Category[]): stri
 
 export function monthStats(txs: Tx[], cats: Category[], month: string): MonthStats {
   const cur = txs.filter((t) => inMonth(t, month));
-  const prevMonth = addMonths(month, -1);
+  // month 가 'YYYY' 이면 연 통계 (전년 대비)
+  const prevMonth = month.length === 4 ? String(Number(month) - 1) : addMonths(month, -1);
   const prev = txs.filter((t) => inMonth(t, prevMonth));
   const sum = (l: Tx[], type: 'expense' | 'income') => l.filter((t) => t.type === type).reduce((s, t) => s + t.amount, 0);
   const expense = sum(cur, 'expense');
@@ -170,4 +171,18 @@ export function dailyAllowance(remaining: number, today: string, month: string):
   if (today < `${month}-01` || today > to) return null;
   const left = Number(to.slice(8)) - Number(today.slice(8)) + 1;
   return left > 0 ? Math.floor(remaining / left) : null;
+}
+
+/**
+ * 이번 달 일평균 지출 기준 월말 예상 지출. 달이 아직 시작 안 했거나 지났으면 null.
+ * 오늘까지 지난 일수(오늘 포함)로 나눈다.
+ */
+export function projectMonthEnd(txs: Tx[], month: string, now: Date): { spent: number; dailyAvg: number; projected: number; daysLeft: number } | null {
+  const [y, m] = month.split('-').map(Number);
+  if (now.getFullYear() !== y || now.getMonth() + 1 !== m) return null;
+  const spent = txs.filter((t) => inMonth(t, month) && t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const total = new Date(y, m, 0).getDate();
+  const day = now.getDate();
+  const dailyAvg = spent / day;
+  return { spent, dailyAvg, projected: Math.round(dailyAvg * total), daysLeft: total - day };
 }

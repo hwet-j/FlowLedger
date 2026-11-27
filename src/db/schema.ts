@@ -10,7 +10,7 @@ PRAGMA foreign_keys = ON;
 export const SCHEMA_V1 = `
 CREATE TABLE IF NOT EXISTS accounts(
   id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE,
-  kind TEXT NOT NULL CHECK(kind IN ('bank','card','cash','savings','invest','other')),
+  kind TEXT NOT NULL CHECK(kind IN ('bank','card','cash','savings','invest','loan','other')),
   initial_balance INTEGER NOT NULL DEFAULT 0,
   is_default INTEGER NOT NULL DEFAULT 0,
   archived INTEGER NOT NULL DEFAULT 0, sort INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
@@ -44,5 +44,12 @@ CREATE TABLE IF NOT EXISTS account_rules(
   id TEXT PRIMARY KEY, keyword TEXT NOT NULL,
   match TEXT NOT NULL DEFAULT 'any' CHECK(match IN ('merchant','category','memo','any')),
   account_id TEXT NOT NULL REFERENCES accounts(id), created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS templates(
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL CHECK(type IN ('expense','income','transfer')), amount INTEGER NOT NULL CHECK(amount > 0),
+  account_id TEXT REFERENCES accounts(id), to_account_id TEXT REFERENCES accounts(id), category_id TEXT REFERENCES categories(id),
+  merchant TEXT, memo TEXT, sort INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS goals(
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, target INTEGER NOT NULL CHECK(target > 0), account_id TEXT REFERENCES accounts(id),
+  saved INTEGER NOT NULL DEFAULT 0, due_date TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;

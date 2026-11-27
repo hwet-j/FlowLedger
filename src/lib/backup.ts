@@ -1,5 +1,5 @@
 import { isHm, isYmd } from './dates';
-import type { Account, AccountRule, Budget, Category, Recurring, Tx } from './types';
+import type { Account, AccountRule, Budget, Category, Goal, Recurring, Template, Tx } from './types';
 
 export interface BackupData {
   v: 1;
@@ -11,13 +11,16 @@ export interface BackupData {
   budgets: Budget[];
   recurring: Recurring[];
   rules: AccountRule[];
+  /** v1.0 초기 백업에는 없을 수 있음 */
+  templates?: Template[];
+  goals?: Goal[];
 }
 
 export const makeBackup = (d: Omit<BackupData, 'v' | 'app' | 'exported_at'>, now: Date = new Date()): string =>
   JSON.stringify({ v: 1, app: 'flowledger', exported_at: now.toISOString(), ...d }, null, 1);
 
 const TYPES = ['expense', 'income', 'transfer'];
-const KINDS = ['bank', 'card', 'cash', 'savings', 'invest', 'other'];
+const KINDS = ['bank', 'card', 'cash', 'savings', 'invest', 'loan', 'other'];
 const isInt = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n);
 
 /** 복원 전 검증. 오류 문장 목록(비어 있으면 통과). 참조 무결성(통장·카테고리)과 값 범위까지 본다 */
@@ -59,6 +62,12 @@ export function validateBackup(raw: unknown): { ok: true; data: BackupData } | {
   });
   (d.recurring as Recurring[]).forEach((r) => {
     if (!accIds.has(r.account_id) || !isInt(r.amount) || r.amount <= 0 || !(r.day >= 1 && r.day <= 31) || !isYmd(r.start_date)) errors.push(`고정거래 "${r.merchant ?? r.id}" 값이 올바르지 않아요`);
+  });
+  (d.templates ?? []).forEach((x) => {
+    if (!x.name || !isInt(x.amount) || x.amount <= 0 || (x.account_id && !accIds.has(x.account_id)) || (x.category_id && !catIds.has(x.category_id))) errors.push(`즐겨찾기 "${x.name ?? x.id}" 값이 올바르지 않아요`);
+  });
+  (d.goals ?? []).forEach((x) => {
+    if (!x.name || !isInt(x.target) || x.target <= 0 || (x.account_id && !accIds.has(x.account_id))) errors.push(`저축 목표 "${x.name ?? x.id}" 값이 올바르지 않아요`);
   });
   (d.rules as AccountRule[]).forEach((r) => {
     if (!r.keyword || !accIds.has(r.account_id)) errors.push(`자동 지정 규칙 "${r.keyword ?? r.id}" 값이 올바르지 않아요`);

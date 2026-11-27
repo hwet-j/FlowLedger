@@ -17,7 +17,7 @@ import { useTheme } from '../../theme';
 export default function Home() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { ready, error, accounts, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, templates, goals, quickRecord, itemsByTx } = useLedger();
+  const { ready, error, recovered, dismissRecovered, accounts, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, templates, goals, quickRecord, itemsByTx } = useLedger();
   const month = monthKey(new Date());
   const today = todayStr();
   const stats = useMemo(() => monthStats(txs, categories, month, itemsByTx), [txs, categories, month, itemsByTx]);
@@ -33,6 +33,13 @@ export default function Home() {
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 140 }}>
       <Text style={{ fontSize: 28, fontWeight: '800', color: t.text, marginBottom: 14 }}>FlowLedger</Text>
       {error ? <Card style={{ marginBottom: 12 }}><Text style={{ color: t.danger }}>데이터를 불러오지 못했어요: {error}</Text></Card> : null}
+
+      {recovered ? (
+        <Pressable onPress={dismissRecovered} accessibilityRole="button" style={{ gap: 4, backgroundColor: t.card, borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1.5, borderColor: t.danger }}>
+          <Text style={{ color: t.danger, fontWeight: '800' }}>데이터베이스가 손상돼 새로 시작했어요</Text>
+          <Text style={{ color: t.sub, fontSize: 13, lineHeight: 19 }}>이전 파일은 지우지 않고 보존했어요. 더보기 → 백업에서 확인하거나, 가지고 있는 백업(JSON)으로 복원할 수 있어요. (눌러서 닫기)</Text>
+        </Pressable>
+      ) : null}
 
       {recurringCreated > 0 && (
         <Pressable onPress={dismissRecurring} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.primarySoft, borderRadius: 14, padding: 14, marginBottom: 12 }}>

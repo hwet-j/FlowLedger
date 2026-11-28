@@ -10,5 +10,28 @@ import expo.modules.kotlin.modules.ModuleDefinition
 class AssistantShareModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("AssistantShare")
+
+    /**
+     * 다른 내 앱의 읽기 전용 제공자 호출 (지금은 LeaseLog 의 스냅샷만). 허용 목록에 없는 authority 는 거부한다.
+     * 반환: { json } 또는 { error }
+     */
+    AsyncFunction("callProvider") { authority: String, method: String ->
+      if (authority !in ALLOWED_AUTHORITIES) return@AsyncFunction mapOf<String, Any?>("error" to "forbidden")
+      val ctx = appContext.reactContext ?: return@AsyncFunction mapOf<String, Any?>("error" to "unavailable")
+      try {
+        val b = ctx.contentResolver.call(android.net.Uri.parse("content://$authority"), method, null, null)
+        when {
+          b == null -> mapOf<String, Any?>("error" to "unavailable")
+          b.getString("error") != null -> mapOf<String, Any?>("error" to b.getString("error"))
+          else -> mapOf<String, Any?>("json" to b.getString("json"))
+        }
+      } catch (e: Exception) {
+        mapOf<String, Any?>("error" to "unavailable")
+      }
+    }
+  }
+
+  companion object {
+    private val ALLOWED_AUTHORITIES = setOf("com.rentmanager.app.assistant")
   }
 }

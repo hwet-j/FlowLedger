@@ -5,16 +5,6 @@
   </queries>
   <application>
     <!-- AI 비서 앱(com.hwetj.assistant)만 가계부 DB 를 읽고 쓸 수 있는 제공자. 접근 제한은 Provider 코드에서 호출자 패키지로 검사한다. -->
-    <!-- 카드 승인·입출금 알림을 읽어 대기열에 쌓는 서비스. 사용자가 설정에서 "알림 접근"을 허용해야만 시스템이 연결한다 -->
-    <service
-      android:name=".CardNotifyService"
-      android:exported="true"
-      android:label="FlowLedger 카드 알림 읽기"
-      android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-      <intent-filter>
-        <action android:name="android.service.notification.NotificationListenerService" />
-      </intent-filter>
-    </service>
     <provider
       android:name=".AssistantShareProvider"
       android:authorities="com.hwetj.flowledger.assistant"

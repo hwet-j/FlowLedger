@@ -11,7 +11,6 @@ import { monthKey, todayStr } from '../../lib/dates';
 import { fmtNum, fmtWon } from '../../lib/money';
 import { goalProgress } from '../../lib/goals';
 import { budgetStatus, dailyAllowance, monthStats, projectMonthEnd } from '../../lib/stats';
-import { useNotifyCount } from '../../lib/cardNotify';
 import { useLedger } from '../../store';
 import { useTheme } from '../../theme';
 
@@ -19,7 +18,6 @@ export default function Home() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const { ready, error, recovered, dismissRecovered, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, rentCreated, dismissRent, templates, goals, quickRecord, itemsByTx } = useLedger();
-  const { count: notifyCount } = useNotifyCount();
   const month = monthKey(new Date());
   const today = todayStr();
   const stats = useMemo(() => monthStats(txs, categories, month, itemsByTx), [txs, categories, month, itemsByTx]);
@@ -39,14 +37,6 @@ export default function Home() {
           <Text style={{ color: t.sub, fontSize: 13, lineHeight: 19 }}>이전 파일은 지우지 않고 보존했어요. 더보기 → 백업에서 확인하거나, 가지고 있는 백업(JSON)으로 복원할 수 있어요. (눌러서 닫기)</Text>
         </Pressable>
       ) : null}
-
-      {notifyCount > 0 && (
-        <Pressable onPress={() => router.push('/more/import')} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.primarySoft, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-          <Ionicons name="notifications" size={20} color={t.primary} />
-          <Text style={{ flex: 1, color: t.primary, fontWeight: '700' }}>카드·입출금 알림 {notifyCount}건 확인 대기 중이에요</Text>
-          <Ionicons name="chevron-forward" size={18} color={t.primary} />
-        </Pressable>
-      )}
 
       {rentCreated > 0 && (
         <Pressable onPress={dismissRent} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.primarySoft, borderRadius: 14, padding: 14, marginBottom: 12 }}>

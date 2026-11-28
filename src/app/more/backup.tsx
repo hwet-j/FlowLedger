@@ -50,12 +50,12 @@ export default function BackupScreen() {
     if (!parsed.ok) { Alert.alert('복원할 수 없는 파일이에요', parsed.errors.join('\n')); return; }
     const d = parsed.data;
     Alert.alert('이 백업으로 복원할까요?',
-      `통장 ${d.accounts.length} · 내역 ${d.transactions.length} · 예산 ${d.budgets.length} · 고정거래 ${d.recurring.length}\n\n지금 기기의 모든 데이터가 이 백업으로 교체돼요. (실패하면 전부 되돌려져요)`,
+      `내역 ${d.transactions.length} · 예산 ${d.budgets.length} · 정기거래 ${d.recurring.length}\n\n지금 기기의 모든 데이터가 이 백업으로 교체돼요. (실패하면 전부 되돌려져요)`,
       [{ text: '취소', style: 'cancel' }, { text: '복원', style: 'destructive', onPress: () => run(async () => { await mutate((db) => restoreAll(db, d)); Alert.alert('복원했어요'); }) }]);
   });
 
   const wipe = () =>
-    Alert.alert('모든 내역을 지울까요?', '내역·예산·고정 거래·자동 지정 규칙이 삭제돼요. 통장과 카테고리는 남아요. 되돌릴 수 없으니 먼저 백업해 두세요.', [
+    Alert.alert('모든 내역을 지울까요?', '내역·예산·정기 거래가 삭제돼요. 카테고리는 남아요. 되돌릴 수 없으니 먼저 백업해 두세요.', [
       { text: '취소', style: 'cancel' },
       { text: '지우기', style: 'destructive', onPress: () => run(async () => { await mutate((db) => wipeAll(db)); }) },
     ]);
@@ -64,7 +64,7 @@ export default function BackupScreen() {
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: insets.bottom + 40 }}>
       <Card style={{ gap: 10 }}>
         <Text style={{ fontWeight: '800', fontSize: 16, color: t.text }}>백업 (JSON)</Text>
-        <Text style={{ color: t.sub, lineHeight: 19 }}>모든 통장·내역·품목·카테고리·예산·고정 거래·규칙을 파일 하나로 내보내요. 다른 폰으로 옮기거나 안전하게 보관할 때 쓰세요. (영수증 사진 파일은 포함되지 않아요)</Text>
+        <Text style={{ color: t.sub, lineHeight: 19 }}>모든 내역·품목·카테고리·예산·정기 거래를 파일 하나로 내보내요. 다른 폰으로 옮기거나 안전하게 보관할 때 쓰세요. (영수증 사진 파일은 포함되지 않아요)</Text>
         <Button title="백업 파일 내보내기" icon="share-outline" onPress={exportJson} disabled={busy} />
         <Button title="백업에서 복원" kind="soft" icon="download-outline" onPress={restore} disabled={busy} />
       </Card>

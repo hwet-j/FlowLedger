@@ -3,7 +3,7 @@ import { Alert, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { deleteGoal, saveGoal } from '../../db/repo';
-import { Bar, Button, Card, Chip, Empty, Field } from '../../components/ui';
+import { Bar, Button, Card, Empty, Field } from '../../components/ui';
 import { goalProgress } from '../../lib/goals';
 import { isYmd, todayStr } from '../../lib/dates';
 import { fmtNum, fmtWon, parseAmount } from '../../lib/money';
@@ -16,8 +16,7 @@ interface Form { id?: string; name: string; target: string; accountId: string | 
 export default function GoalsScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { goals, accounts, balances, mutate } = useLedger();
-  const active = accounts.filter((a) => !a.archived);
+  const { goals, balances, mutate } = useLedger();
   const [form, setForm] = useState<Form | null>(null);
   const today = todayStr();
 
@@ -35,7 +34,7 @@ export default function GoalsScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
-      <Text style={{ color: t.sub, lineHeight: 19 }}>목표 금액을 정하고 저축 통장을 연결하면, 그 통장의 잔액으로 진행률을 계산해요. 통장을 연결하지 않으면 직접 입력한 금액으로 계산해요.</Text>
+      <Text style={{ color: t.sub, lineHeight: 19 }}>목표 금액과 지금까지 모은 금액을 적어 두면 진행률을 보여 줘요.</Text>
       <Card style={{ gap: 16 }}>
         {goals.length === 0 ? <Empty icon="flag-outline" title="저축 목표가 없어요" /> : goals.map((g) => {
           const p = goalProgress(g, balances, today);
@@ -57,12 +56,7 @@ export default function GoalsScreen() {
           <Text style={{ fontWeight: '800', color: t.text }}>{form.id ? '목표 수정' : '목표 추가'}</Text>
           <Field label="이름" value={form.name} onChangeText={(name) => setForm({ ...form, name })} placeholder="예: 비상금, 여행 자금" />
           <Field label="목표 금액" value={form.target} keyboardType="number-pad" onChangeText={(s) => { const n = parseAmount(s); setForm({ ...form, target: n ? fmtNum(n) : '' }); }} />
-          <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub }}>연결 통장 (잔액이 진행액)</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            <Chip label="연결 안 함" on={form.accountId === null} onPress={() => setForm({ ...form, accountId: null })} />
-            {active.map((a) => <Chip key={a.id} label={a.name} on={form.accountId === a.id} onPress={() => setForm({ ...form, accountId: a.id })} />)}
-          </View>
-          {form.accountId === null && <Field label="현재 모은 금액" value={form.saved} keyboardType="number-pad" onChangeText={(s) => { const n = parseAmount(s); setForm({ ...form, saved: n ? fmtNum(n) : '' }); }} />}
+          <Field label="현재 모은 금액" value={form.saved} keyboardType="number-pad" onChangeText={(s) => { const n = parseAmount(s); setForm({ ...form, saved: n ? fmtNum(n) : '' }); }} />
           <Field label="목표일 (선택, YYYY-MM-DD)" value={form.due} onChangeText={(due) => setForm({ ...form, due })} placeholder="예: 2027-06-30" />
           <Button title="저장" onPress={save} />
           <Button title="닫기" kind="soft" onPress={() => setForm(null)} />

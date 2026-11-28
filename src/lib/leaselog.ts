@@ -5,7 +5,14 @@ const AUTHORITY = 'com.rentmanager.app.assistant';
 
 interface Native { callProvider(authority: string, method: string): Promise<{ json?: string; error?: string }> }
 
-export async function readLeaselogSnapshot(): Promise<unknown | null> {
+const TIMEOUT_MS = 8000;
+
+/** 제공자가 응답하지 않아도(LeaseLog 가 멈췄거나 시작이 느릴 때) 영원히 기다리지 않는다 */
+export function readLeaselogSnapshot(): Promise<unknown | null> {
+  return Promise.race([readOnce(), new Promise<null>((resolve) => setTimeout(() => resolve(null), TIMEOUT_MS))]);
+}
+
+async function readOnce(): Promise<unknown | null> {
   try {
     const m = requireNativeModule<Native>('AssistantShare');
     const r = await m.callProvider(AUTHORITY, 'snapshot');

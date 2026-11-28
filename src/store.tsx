@@ -69,22 +69,27 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
     setSnap(await loadAll(db));
   }, []);
 
+  /** LeaseLog 에 저장된 월세 입금을 수입으로 자동 반영 (설정에서 끌 수 있음, LeaseLog 가 없거나 응답이 없으면 조용히 건너뜀) */
+  const syncRent = useCallback(async () => {
+    try {
+      const db = await getDb();
+      if ((await kvGet(db, 'rent_sync')) === '0') return;
+      const snapRent = await readLeaselogSnapshot();
+      if (!snapRent) return;
+      const r = await runRentSync(db, recentOnly(buildRentAdds(snapshotPayments(snapRent)), todayStr()));
+      if (r > 0) {
+        setRentCreated((c) => c + r);
+        setSnap(await loadAll(db));
+      }
+    } catch { /* 월세 반영 실패가 가계부를 막지 않게 */ }
+  }, []);
+
   const sync = useCallback(async () => {
     try {
       const db = await getDb();
       if (db.recovered) setRecovered((r) => r ?? db.recovered);
       const n = await runRecurring(db, todayStr());
       if (n > 0) setRecurringCreated((c) => c + n);
-      // LeaseLog 에 저장된 월세 입금을 수입으로 자동 반영 (설정에서 끌 수 있음, LeaseLog 가 없으면 조용히 건너뜀)
-      if ((await kvGet(db, 'rent_sync')) !== '0') {
-        try {
-          const snapRent = await readLeaselogSnapshot();
-          if (snapRent) {
-            const r = await runRentSync(db, recentOnly(buildRentAdds(snapshotPayments(snapRent)), todayStr()));
-            if (r > 0) setRentCreated((c) => c + r);
-          }
-        } catch { /* 월세 반영 실패가 가계부 로딩을 막지 않게 */ }
-      }
       setSnap(await loadAll(db));
       setSettings({
         appLock: (await kvGet(db, 'app_lock')) === '1',
@@ -97,7 +102,9 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setReady(true);
     }
-  }, []);
+    // 월세 반영은 화면을 띄운 뒤에 따로 한다: LeaseLog 가 느리거나 멈춰도 앱 시작(잠금 화면)을 막지 않게
+    void syncRent();
+  }, [syncRent]);
 
   useEffect(() => {
     void sync();

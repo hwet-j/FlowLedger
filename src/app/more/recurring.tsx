@@ -3,6 +3,8 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { deleteRecurring, runRecurring, saveRecurring } from '../../db/repo';
+import { useRecurringSuggestions } from '../../components/useRecurringSuggestions';
+import { recurringFromSuggestion } from '../../lib/suggest';
 import { CategoryPicker } from '../../components/CategoryPicker';
 import { Button, Card, Chip, Empty, Field, Row } from '../../components/ui';
 import { isYmd, todayStr } from '../../lib/dates';
@@ -19,6 +21,7 @@ export default function RecurringScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const { recurring, accounts, catById, mutate } = useLedger();
+  const { suggestions, hide } = useRecurringSuggestions();
   const active = accounts.filter((a) => !a.archived);
   const [form, setForm] = useState<Form | null>(null);
   const today = todayStr();
@@ -27,6 +30,13 @@ export default function RecurringScreen() {
     setForm(r ? { id: r.id, type: r.type, amount: fmtNum(r.amount), accountId: r.account_id, toId: r.to_account_id, categoryId: r.category_id, merchant: r.merchant ?? '', memo: r.memo ?? '',
       day: r.day, start: r.start_date, end: r.end_date ?? '', active: !!r.active }
       : { type: 'expense', amount: '', accountId: active.find((a) => a.is_default)?.id ?? active[0]?.id ?? null, toId: null, categoryId: null, merchant: '', memo: '', day: new Date().getDate(), start: today, end: '', active: true });
+
+  const accept = async (i: number) => {
+    const s = suggestions[i];
+    const acc = active.find((a) => a.is_default)?.id ?? active[0]?.id;
+    if (!acc) return;
+    await mutate(async (db) => { await saveRecurring(db, recurringFromSuggestion(s, acc, MISC_EXPENSE_ID)); });
+  };
 
   const save = async () => {
     if (!form) return;
@@ -47,6 +57,21 @@ export default function RecurringScreen() {
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
       <Text style={{ color: t.sub, lineHeight: 19 }}>월세·구독·급여처럼 매달 정한 날짜에 나가거나 들어오는 돈이에요. 한 번 등록하면 그날 자동으로 기록돼요. 앱을 열 때 도래한 건 자동으로 기록하고, 오래 안 열었어도 밀린 달을 한꺼번에 채워요. 말일이 없는 달은 그 달 말일에 기록돼요.</Text>
+      {suggestions.length > 0 && (
+        <Card style={{ gap: 10 }}>
+          <Text style={{ fontWeight: '800', color: t.text }}>매달 나가는 걸로 보이는 결제 {suggestions.length}곳</Text>
+          <Text style={{ fontSize: 12.5, color: t.sub, lineHeight: 18 }}>등록하면 앞으로는 정한 날 자동으로 기록돼요. 이미 기록된 내역은 그대로예요.</Text>
+          {suggestions.map((s, i) => (
+            <View key={s.key} style={{ gap: 6 }}>
+              <Text style={{ color: t.text, fontWeight: '700' }}>{s.name} · {fmtWon(s.amount)} <Text style={{ color: t.sub, fontWeight: '500' }}>(매달 {s.day}일 · {s.months}개월째)</Text></Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Button title="정기 거래로 등록" onPress={() => accept(i)} />
+                <Button title="숨기기" kind="soft" onPress={() => hide(s.key)} />
+              </View>
+            </View>
+          ))}
+        </Card>
+      )}
       <Card>
         {recurring.length === 0 ? <Empty icon="repeat-outline" title="정기 거래가 없어요" hint="아래에서 추가해 보세요." /> : recurring.map((r, i) => {
           const nx = nextRun(r, today);

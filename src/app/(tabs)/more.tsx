@@ -5,12 +5,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card, Row } from '../../components/ui';
 import { useLedger } from '../../store';
+import { useRecurringSuggestions } from '../../components/useRecurringSuggestions';
 import { useTheme } from '../../theme';
 
 export default function More() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const { recurring, budgets, templates, goals } = useLedger();
+  const { suggestions } = useRecurringSuggestions();
   const go = (p: string) => () => router.push(p as never);
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 140, gap: 14 }}>
@@ -23,7 +25,7 @@ export default function More() {
         <Row icon="speedometer" label="예산" sub={`${budgets.length}개 설정`} onPress={go('/more/budgets')} />
         <Row icon="flash" label="자주 쓰는 거래" sub={`${templates.length}개 · 칩 한 번으로 바로 기록`} onPress={go('/more/templates')} />
         <Row icon="flag" label="저축 목표" sub={`${goals.length}개`} onPress={go('/more/goals')} />
-        <Row icon="repeat" label="정기 거래 (자동 기록)" sub={`${recurring.filter((r) => r.active).length}개 · 월세·구독·급여를 정한 날 자동으로 기록`} onPress={go('/more/recurring')} last />
+        <Row icon="repeat" label="정기 거래 (자동 기록)" sub={`${recurring.filter((r) => r.active).length}개 · 월세·구독·급여를 정한 날 자동으로 기록${suggestions.length ? ` · 등록 제안 ${suggestions.length}곳` : ''}`} onPress={go('/more/recurring')} last />
       </Card>
       <Card>
         <Row icon="settings" label="설정" sub="앱 잠금 · 예산 알림" onPress={go('/more/settings')} />

@@ -1,10 +1,11 @@
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as Notifications from 'expo-notifications';
-import React from 'react';
-import { Alert, ScrollView, Switch, Text } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, AppState, ScrollView, Switch, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card, Row } from '../../components/ui';
+import { notifyAccessEnabled, openNotifyAccessSettings } from '../../lib/cardNotify';
 import { useLedger } from '../../store';
 import { useTheme } from '../../theme';
 
@@ -12,6 +13,11 @@ export default function SettingsScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const { settings, setSetting } = useLedger();
+  const [notifyOn, setNotifyOn] = useState(() => notifyAccessEnabled());
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (x) => { if (x === 'active') setNotifyOn(notifyAccessEnabled()); });
+    return () => sub.remove();
+  }, []);
 
   const toggleLock = async (on: boolean) => {
     if (!on) { await setSetting('appLock', false); return; }
@@ -45,6 +51,12 @@ export default function SettingsScreen() {
       </Card>
       <Text style={{ color: t.sub, lineHeight: 19, paddingHorizontal: 4 }}>
         알림은 이 앱이 내역을 읽는 시점(앱을 열 때, 직접 입력할 때)에 확인해서 보내요. 비서가 앱 밖에서 기록한 내역은 앱을 다시 열 때 반영돼요.
+      </Text>
+      <Card>
+        <Row icon="notifications" label="카드·입출금 알림 읽기" sub={notifyOn ? '허용됨 · 결제 알림이 오면 대기열에 쌓이고, 가져오기에서 확인 후 저장해요' : '꺼져 있어요 · 눌러서 "알림 접근"에서 FlowLedger 를 허용하세요'} onPress={() => { openNotifyAccessSettings(); }} last />
+      </Card>
+      <Text style={{ color: t.sub, lineHeight: 19, paddingHorizontal: 4 }}>
+        금액과 결제·입출금 단어가 있는 알림 글만 이 기기에 임시로 쌓아 두고, 밖으로 보내지 않아요. 자동으로 기록하지 않고 항상 확인 후 저장해요. 설치 파일(APK)로 직접 깔았다면 안드로이드가 허용을 막을 수 있어요: 휴대폰 설정 → 앱 → FlowLedger → 우측 위 ⋮ → 「제한된 설정 허용」 후 다시 시도하세요.
       </Text>
       <Card>
         <Row icon="home" label="월세 입금 자동 반영" sub="LeaseLog 에 저장한 월세 입금(최근 3개월)을 수입으로 자동 기록해요. 이미 반영한 건은 다시 넣지 않아요" right={<Switch value={settings.rentSync} onValueChange={(on) => void setSetting('rentSync', on)} trackColor={{ true: t.primary }} />} last />

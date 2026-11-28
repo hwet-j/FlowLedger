@@ -14,6 +14,7 @@ import { parseDelimited } from '../../lib/import/delimited';
 import { buildPlan, categoryLabel, learnableChoices, summarizePlan, toImportRows, type PlanRow } from '../../lib/import/plan';
 import { rowsToDrafts, type Draft, type DraftType, type RowIssue } from '../../lib/import/rows';
 import { parseSms } from '../../lib/import/sms';
+import { clearNotifyQueue, peekNotifyQueue, queueToText } from '../../lib/cardNotify';
 import { fmtNum, fmtWon } from '../../lib/money';
 import { useLedger } from '../../store';
 import { R, useTheme } from '../../theme';
@@ -47,6 +48,8 @@ export default function ImportScreen() {
   const [filter, setFilter] = useState<Filter>('all');
   const [pickFor, setPickFor] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [fromNotify, setFromNotify] = useState(false);
+  const [queued, setQueued] = useState(() => peekNotifyQueue().length);
   const [batches, setBatches] = useState<{ id: string; created_at: string; source: string; label: string | null; count: number }[]>([]);
 
   const loadRecent = useCallback(() => { getDb().then(loadBatches).then(setBatches).catch(() => {}); }, []);
@@ -89,6 +92,15 @@ export default function ImportScreen() {
     await startPlan(r.drafts, r.issues);
   };
 
+  /** 카드 알림 대기열을 문자 가져오기와 같은 검토 화면으로 연다 (저장해야 가계부에 들어간다) */
+  const readQueue = async () => {
+    const items = peekNotifyQueue();
+    const r = parseSms(queueToText(items));
+    if (r.drafts.length === 0) { Alert.alert('거래를 찾지 못했어요', '읽은 알림에서 결제·입출금 내역을 찾지 못했어요. 대기열을 비울까요?', [{ text: '취소', style: 'cancel' }, { text: '비우기', onPress: () => { clearNotifyQueue(); setQueued(0); } }]); return; }
+    setSource('sms'); setFileName('카드 알림'); setFromNotify(true);
+    await startPlan(r.drafts, r.issues);
+  };
+
   const dataRows = useMemo(() => table.slice(headerRow + 1), [table, headerRow]);
   const canNext = mapping.date !== undefined && (mapping.withdraw !== undefined || mapping.deposit !== undefined || mapping.amount !== undefined);
   const toPreview = async () => {
@@ -114,6 +126,7 @@ export default function ImportScreen() {
       });
       await refresh();
       loadRecent();
+      if (fromNotify) { clearNotifyQueue(); setQueued(0); setFromNotify(false); }
       setStep('source'); setPasted(''); setTable([]); setRows([]); setDrafts([]);
       showNotice({
         text: res.saved === 0 ? '이미 가져온 내역이라 새로 저장된 게 없어요' : `${acc?.name ?? ''}에 ${res.saved}건 가져왔어요${res.skipped ? ` (중복 ${res.skipped}건 제외)` : ''}`,
@@ -135,6 +148,14 @@ export default function ImportScreen() {
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 40 }} keyboardShouldPersistTaps="handled">
       {step === 'source' && (
         <>
+          {queued > 0 && (
+            <Card style={{ gap: 10 }}>
+              <Text style={{ fontWeight: '800', color: t.text }}>카드·입출금 알림 {queued}건을 읽어 뒀어요</Text>
+              <Text style={{ fontSize: 12.5, color: t.sub, lineHeight: 18 }}>확인하고 저장하면 가계부에 들어가요. 저장 전에는 아무것도 기록되지 않아요.</Text>
+              <Button title="알림에서 읽은 내역 검토" icon="notifications" onPress={readQueue} />
+              <Button title="대기열 비우기" kind="soft" onPress={() => Alert.alert('읽어 둔 알림을 지울까요?', '가계부에는 아무것도 기록되지 않아요.', [{ text: '취소', style: 'cancel' }, { text: '지우기', style: 'destructive', onPress: () => { clearNotifyQueue(); setQueued(0); } }])} />
+            </Card>
+          )}
           <Card style={{ gap: 10 }}>
             <Text style={{ fontWeight: '800', color: t.text }}>은행·카드 내역 가져오기</Text>
             <Text style={{ fontSize: 12.5, color: t.sub, lineHeight: 18 }}>은행·카드 앱은 직접 연동할 수 없어서(오픈뱅킹은 사업자 등록이 필요해요), 앱이 내보내는 거래내역을 가져오는 방식으로 대신해요. 카드 내역은 카드 통장을 선택하세요.</Text>

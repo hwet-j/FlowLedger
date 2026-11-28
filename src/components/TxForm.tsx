@@ -98,7 +98,6 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
   useEffect(() => {
     if (!accountTouched && auto.account) setAccountId(auto.account.id);
   }, [auto.account, accountTouched]);
-  const accountSource = accountTouched ? 'explicit' : auto.source;
 
   // 이체 입금 통장은 출금 통장과 달라야 한다
   useEffect(() => {
@@ -221,7 +220,6 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
     ]);
 
   const typeColor = type === 'expense' ? t.expense : type === 'income' ? t.income : t.sub;
-  const accName = (id: string | null) => accounts.find((a) => a.id === id)?.name ?? '선택';
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: t.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -239,7 +237,7 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
           </View>
         )}
         <View style={{ flexDirection: 'row', backgroundColor: t.input, borderRadius: R.md, padding: 4 }}>
-          {(['expense', 'income', 'transfer'] as TxType[]).map((k) => (
+          {(['expense', 'income', ...(edit?.type === 'transfer' ? ['transfer' as const] : [])] as TxType[]).map((k) => (
             <Pressable key={k} onPress={() => setType(k)} accessibilityRole="button" accessibilityState={{ selected: type === k }}
               style={{ flex: 1, height: 40, borderRadius: R.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: type === k ? t.card : 'transparent' }}>
               <Text style={{ fontWeight: '800', fontSize: 15, color: type === k ? (k === 'expense' ? t.expense : k === 'income' ? t.income : t.text) : t.sub }}>{TYPE_LABEL[k]}</Text>
@@ -333,27 +331,6 @@ export function TxForm({ edit, init }: { edit?: Tx; init?: FormInit }) {
                 {subs.map((c) => <Chip key={c.id} label={c.name} on={categoryId === c.id} onPress={() => setCategoryId(categoryId === c.id ? openTopId : c.id)} />)}
               </View>
             )}
-          </View>
-        )}
-
-        <View style={{ gap: 8 }}>
-          <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub, marginLeft: 4 }}>{isTransfer ? '출금 통장' : '통장'}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {active.map((a) => <Chip key={a.id} label={a.name} on={accountId === a.id} onPress={() => { setAccountId(a.id); setAccountTouched(true); }} icon={a.is_default ? 'star' : undefined} />)}
-          </ScrollView>
-          {!isTransfer && (
-            <Text style={{ fontSize: 12.5, color: accountSource === 'rule' ? t.primary : t.sub, marginLeft: 4 }}>
-              {accountSource === 'explicit' ? (edit ? '' : '직접 선택한 통장') : accountSource === 'rule' ? `규칙으로 선택됨 · "${auto.rule?.keyword}" → ${accName(accountId)}` : `기본 통장으로 기록돼요 (${accName(accountId)})`}
-            </Text>
-          )}
-        </View>
-
-        {isTransfer && (
-          <View style={{ gap: 8 }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub, marginLeft: 4 }}>입금 통장</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-              {active.filter((a) => a.id !== accountId).map((a) => <Chip key={a.id} label={a.name} on={toAccountId === a.id} onPress={() => setToAccountId(a.id)} />)}
-            </ScrollView>
           </View>
         )}
 

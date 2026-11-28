@@ -33,7 +33,7 @@ export default function ImportScreen() {
   const active = accounts.filter((a) => !a.archived);
   const [step, setStep] = useState<Step>('source');
   const [source, setSource] = useState<Source>('csv');
-  const [accountId, setAccountId] = useState<string>(() => (active.find((a) => a.is_default) ?? active[0])?.id ?? '');
+  const [accountId] = useState<string>(() => (active.find((a) => a.is_default) ?? active[0])?.id ?? '');
   const [pasted, setPasted] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
   const [table, setTable] = useState<string[][]>([]);
@@ -136,10 +136,7 @@ export default function ImportScreen() {
       {step === 'source' && (
         <>
           <Card style={{ gap: 10 }}>
-            <Text style={{ fontWeight: '800', color: t.text }}>어느 통장의 내역인가요?</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {active.map((a) => <Chip key={a.id} label={a.name} on={accountId === a.id} onPress={() => setAccountId(a.id)} />)}
-            </View>
+            <Text style={{ fontWeight: '800', color: t.text }}>은행·카드 내역 가져오기</Text>
             <Text style={{ fontSize: 12.5, color: t.sub, lineHeight: 18 }}>은행·카드 앱은 직접 연동할 수 없어서(오픈뱅킹은 사업자 등록이 필요해요), 앱이 내보내는 거래내역을 가져오는 방식으로 대신해요. 카드 내역은 카드 통장을 선택하세요.</Text>
           </Card>
 

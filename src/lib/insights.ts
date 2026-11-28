@@ -123,7 +123,7 @@ export function smallLeaks(txs: Tx[], r: Range, aliases?: AliasMap, limit = 10_0
   })).sort((a, b) => b.total - a.total);
 }
 
-export interface Subscription { key: string; name: string; amount: number; months: number; lastDate: string; nextDate: string; monthlyTotal: number }
+export interface Subscription { key: string; name: string; amount: number; months: number; lastDate: string; nextDate: string; monthlyTotal: number; categoryId?: string | null; accountId?: string; day?: number }
 
 /**
  * 구독·정기 결제 후보: 같은 가맹점에서 서로 다른 3개월 이상, 월 간격(25~35일)으로 비슷한 금액(±10%)이 반복.
@@ -163,6 +163,7 @@ export function detectSubscriptions(txs: Tx[], aliases?: AliasMap, minMonths = 3
     out.push({
       key, name: pickName(names, aliases), amount, months: best.length, lastDate: lastT.date,
       nextDate: shiftDay(lastT.date, 30), monthlyTotal: amount,
+      categoryId: lastT.category_id, accountId: lastT.account_id, day: Number(lastT.date.slice(8, 10)),
     });
   }
   return out.sort((a, b) => b.amount - a.amount);

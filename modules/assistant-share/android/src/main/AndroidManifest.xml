@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- LeaseLog(월세 앱)의 읽기 전용 스냅샷 제공자를 찾을 수 있게 (Android 11+ 패키지 가시성) -->
+  <queries>
+    <package android:name="com.rentmanager.app" />
+  </queries>
   <application>
     <!-- AI 비서 앱(com.hwetj.assistant)만 가계부 DB 를 읽고 쓸 수 있는 제공자. 접근 제한은 Provider 코드에서 호출자 패키지로 검사한다. -->
     <provider

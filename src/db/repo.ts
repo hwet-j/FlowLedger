@@ -270,6 +270,44 @@ export async function runRecurring(db: SQLiteDatabase, today: string): Promise<n
   return created;
 }
 
+/** LeaseLog 입금을 수입으로 넣는다(이미 있는 req_id 는 건너뜀). 새로 들어간 건수를 돌려준다 */
+export async function insertRentAdds(db: SQLiteDatabase, adds: { ref: string; date: string; amount: number; merchant: string }[], accountId: string, categoryId: string): Promise<number> {
+  if (!adds.length) return 0;
+  let created = 0;
+  await db.withExclusiveTransactionAsync(async (tx) => {
+    for (const a of adds) {
+      const res = await tx.runAsync(
+        `INSERT OR IGNORE INTO transactions(id,type,amount,date,time,account_id,to_account_id,category_id,merchant,memo,tags,source,source_ref,recurring_id,created_at,updated_at)
+         VALUES(?,'income',?,?,NULL,?,NULL,?,?,?,?,'app',?,NULL,?,?)`,
+        uid(), a.amount, a.date, accountId, categoryId, a.merchant, 'LeaseLog 입금', '월세', a.ref, nowIso(), nowIso());
+      created += res.changes;
+    }
+  });
+  return created;
+}
+
+const RENT_REFS_KEY = 'rent_sync_refs';
+
+/**
+ * LeaseLog 입금 자동 반영. 이미 처리한 req_id 는 kv 에 기억해 두어, 사용자가 지운 건이 다시 살아나지 않게 한다.
+ * 반환: 새로 들어간 건수
+ */
+export async function runRentSync(db: SQLiteDatabase, adds: { ref: string; date: string; amount: number; merchant: string }[]): Promise<number> {
+  if (!adds.length) return 0;
+  let seen: string[] = [];
+  try { seen = JSON.parse((await kvGet(db, RENT_REFS_KEY)) ?? '[]'); } catch { seen = []; }
+  const done = new Set(seen);
+  const fresh = adds.filter((a) => !done.has(a.ref));
+  if (!fresh.length) return 0;
+  const acc = await db.getFirstAsync<{ id: string }>('SELECT id FROM accounts WHERE archived=0 ORDER BY is_default DESC, sort LIMIT 1');
+  if (!acc) return 0;
+  const cat = await db.getFirstAsync<{ id: string }>("SELECT id FROM categories WHERE id='cat_side' AND archived=0");
+  const n = await insertRentAdds(db, fresh, acc.id, cat?.id ?? 'cat_inc_misc');
+  for (const a of fresh) done.add(a.ref);
+  await kvSet(db, RENT_REFS_KEY, JSON.stringify([...done].slice(-1000)));
+  return n;
+}
+
 // ---- 백업 복원 (검증을 통과한 데이터만, 한 트랜잭션: 실패하면 전부 되돌림)
 export async function restoreAll(db: SQLiteDatabase, d: BackupData): Promise<void> {
   await db.withExclusiveTransactionAsync(async (tx) => {

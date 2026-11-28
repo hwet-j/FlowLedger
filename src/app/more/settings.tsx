@@ -46,6 +46,9 @@ export default function SettingsScreen() {
       <Text style={{ color: t.sub, lineHeight: 19, paddingHorizontal: 4 }}>
         알림은 이 앱이 내역을 읽는 시점(앱을 열 때, 직접 입력할 때)에 확인해서 보내요. 비서가 앱 밖에서 기록한 내역은 앱을 다시 열 때 반영돼요.
       </Text>
+      <Card>
+        <Row icon="home" label="월세 입금 자동 반영" sub="LeaseLog 에 저장한 월세 입금(최근 3개월)을 수입으로 자동 기록해요. 이미 반영한 건은 다시 넣지 않아요" right={<Switch value={settings.rentSync} onValueChange={(on) => void setSetting('rentSync', on)} trackColor={{ true: t.primary }} />} last />
+      </Card>
     </ScrollView>
   );
 }

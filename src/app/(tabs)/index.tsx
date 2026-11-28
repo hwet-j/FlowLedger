@@ -18,7 +18,7 @@ import { useTheme } from '../../theme';
 export default function Home() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { ready, error, recovered, dismissRecovered, accounts, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, templates, goals, quickRecord, itemsByTx } = useLedger();
+  const { ready, error, recovered, dismissRecovered, accounts, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, rentCreated, dismissRent, templates, goals, quickRecord, itemsByTx } = useLedger();
   const month = monthKey(new Date());
   const today = todayStr();
   const stats = useMemo(() => monthStats(txs, categories, month, itemsByTx), [txs, categories, month, itemsByTx]);
@@ -41,6 +41,14 @@ export default function Home() {
           <Text style={{ color: t.sub, fontSize: 13, lineHeight: 19 }}>이전 파일은 지우지 않고 보존했어요. 더보기 → 백업에서 확인하거나, 가지고 있는 백업(JSON)으로 복원할 수 있어요. (눌러서 닫기)</Text>
         </Pressable>
       ) : null}
+
+      {rentCreated > 0 && (
+        <Pressable onPress={dismissRent} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.primarySoft, borderRadius: 14, padding: 14, marginBottom: 12 }}>
+          <Ionicons name="home" size={20} color={t.primary} />
+          <Text style={{ flex: 1, color: t.primary, fontWeight: '700' }}>LeaseLog 월세 입금 {rentCreated}건이 수입으로 반영됐어요</Text>
+          <Ionicons name="close" size={18} color={t.primary} />
+        </Pressable>
+      )}
 
       {recurringCreated > 0 && (
         <Pressable onPress={dismissRecurring} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.primarySoft, borderRadius: 14, padding: 14, marginBottom: 12 }}>

@@ -4,16 +4,18 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { AppState, Platform } from 'react-native';
 
 import { getDb } from './db';
-import { deleteTx, insertTx, kvGet, kvSet, loadAll, restoreTx, runRecurring, type Snapshot } from './db/repo';
+import { deleteTx, insertTx, kvGet, kvSet, loadAll, restoreTx, runRecurring, runRentSync, type Snapshot } from './db/repo';
 import { balances, resolveAccount } from './lib/accounts';
+import { readLeaselogSnapshot } from './lib/leaselog';
 import { fmtNum } from './lib/money';
+import { buildRentAdds, recentOnly, snapshotPayments } from './lib/rentSync';
 import { monthKey, todayStr } from './lib/dates';
 import { MISC_EXPENSE_ID, MISC_INCOME_ID } from './lib/seed';
 import { alertsDue, budgetStatus } from './lib/stats';
 import { groupItems } from './lib/items';
 import type { Account, Category, Template, Tx, TxItem } from './lib/types';
 
-export interface Settings { appLock: boolean; budgetAlerts: boolean }
+export interface Settings { appLock: boolean; budgetAlerts: boolean; rentSync: boolean }
 export interface Notice { text: string; action?: { label: string; run: () => Promise<void> } }
 
 interface Ctx extends Snapshot {
@@ -28,6 +30,8 @@ interface Ctx extends Snapshot {
   catById: Map<string, Category>;
   /** 마지막으로 자동 생성된 고정 거래 수 (홈 배너용) */
   recurringCreated: number;
+  rentCreated: number;
+  dismissRent: () => void;
   dismissRecurring(): void;
   /** 시작할 때 DB 가 손상돼 있어 보존하고 새로 시작했다면 보존된 파일 이름 (홈 안내 배너용) */
   recovered: string | null;
@@ -45,7 +49,7 @@ interface Ctx extends Snapshot {
 }
 
 const EMPTY: Snapshot = { accounts: [], categories: [], txs: [], budgets: [], recurring: [], rules: [], templates: [], goals: [], items: [] };
-const DEFAULT_SETTINGS: Settings = { appLock: false, budgetAlerts: true };
+const DEFAULT_SETTINGS: Settings = { appLock: false, budgetAlerts: true, rentSync: true };
 const C = createContext<Ctx>(null as never);
 export const useLedger = () => useContext(C);
 
@@ -54,6 +58,7 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recurringCreated, setRecurringCreated] = useState(0);
+  const [rentCreated, setRentCreated] = useState(0);
   const [recovered, setRecovered] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -70,10 +75,21 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
       if (db.recovered) setRecovered((r) => r ?? db.recovered);
       const n = await runRecurring(db, todayStr());
       if (n > 0) setRecurringCreated((c) => c + n);
+      // LeaseLog 에 저장된 월세 입금을 수입으로 자동 반영 (설정에서 끌 수 있음, LeaseLog 가 없으면 조용히 건너뜀)
+      if ((await kvGet(db, 'rent_sync')) !== '0') {
+        try {
+          const snapRent = await readLeaselogSnapshot();
+          if (snapRent) {
+            const r = await runRentSync(db, recentOnly(buildRentAdds(snapshotPayments(snapRent)), todayStr()));
+            if (r > 0) setRentCreated((c) => c + r);
+          }
+        } catch { /* 월세 반영 실패가 가계부 로딩을 막지 않게 */ }
+      }
       setSnap(await loadAll(db));
       setSettings({
         appLock: (await kvGet(db, 'app_lock')) === '1',
         budgetAlerts: (await kvGet(db, 'budget_alerts')) !== '0',
+        rentSync: (await kvGet(db, 'rent_sync')) !== '0',
       });
       setError(null);
     } catch (e) {
@@ -99,7 +115,7 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
 
   const setSetting = useCallback(async <K extends keyof Settings>(key: K, value: Settings[K]) => {
     const db = await getDb();
-    await kvSet(db, key === 'appLock' ? 'app_lock' : 'budget_alerts', value ? '1' : '0');
+    await kvSet(db, key === 'appLock' ? 'app_lock' : key === 'rentSync' ? 'rent_sync' : 'budget_alerts', value ? '1' : '0');
     setSettings((s) => ({ ...s, [key]: value }));
   }, []);
 
@@ -176,9 +192,10 @@ export function LedgerProvider({ children }: { children: React.ReactNode }) {
     itemsByTx: groupItems(snap.items),
     catById: new Map(snap.categories.map((c) => [c.id, c])),
     recurringCreated, dismissRecurring: () => setRecurringCreated(0),
+    rentCreated, dismissRent: () => setRentCreated(0),
     recovered, dismissRecovered: () => setRecovered(null),
     mutate, refresh, removeTx, quickRecord, notice, showNotice, clearNotice,
-  }), [snap, ready, error, settings, setSetting, recurringCreated, recovered, mutate, refresh, removeTx, quickRecord, notice, showNotice, clearNotice]);
+  }), [snap, ready, error, settings, setSetting, recurringCreated, rentCreated, recovered, mutate, refresh, removeTx, quickRecord, notice, showNotice, clearNotice]);
 
   return <C.Provider value={value}>{children}</C.Provider>;
 }

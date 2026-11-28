@@ -6,6 +6,7 @@ import { Alert, ScrollView, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getDb } from '../../db';
+import { loadExtras } from '../../db/insightsRepo';
 import { restoreAll, wipeAll } from '../../db/repo';
 import { Button, Card, SectionTitle } from '../../components/ui';
 import { makeBackup, parseBackup } from '../../lib/backup';
@@ -37,8 +38,10 @@ export default function BackupScreen() {
     try { await fn(); } catch (e) { Alert.alert('실패했어요', e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   };
 
-  const exportJson = () => run(() => shareText(`flowledger-backup-${today}.json`,
-    makeBackup({ accounts, categories, transactions: txs, budgets, recurring, rules, templates, goals, items }), 'application/json'));
+  const exportJson = () => run(async () => {
+    const extras = await loadExtras(await getDb());
+    await shareText(`flowledger-backup-${today}.json`, makeBackup({ accounts, categories, transactions: txs, budgets, recurring, rules, templates, goals, items, ...extras }), 'application/json');
+  });
   const exportItemsCsv = () => run(() => shareText(`flowledger-items-${today}.csv`, itemsToCsv(txs, items, categories), 'text/csv'));
   const exportCsv = () => run(() => shareText(`flowledger-${today}.csv`, toCsv(txs, accounts, categories), 'text/csv'));
 

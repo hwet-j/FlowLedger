@@ -43,6 +43,8 @@ function Shell() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="add" options={{ title: '새 내역', presentation: 'modal' }} />
         <Stack.Screen name="tx/[id]" options={{ title: '내역 수정', presentation: 'modal' }} />
+        <Stack.Screen name="insights" options={{ title: '지출 인사이트' }} />
+        <Stack.Screen name="more/import" options={{ title: '거래 가져오기' }} />
         <Stack.Screen name="more/categories" options={{ title: '카테고리 관리' }} />
         <Stack.Screen name="more/budgets" options={{ title: '예산' }} />
         <Stack.Screen name="more/recurring" options={{ title: '고정 거래' }} />

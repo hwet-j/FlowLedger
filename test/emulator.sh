@@ -27,7 +27,7 @@ adb logcat -c
 launch
 if wait_for 120 '[ "$(sql "select count(*) from accounts;")" = "1" ]'; then ok "first run: DB 생성·시드"; else bad "first run: DB 가 만들어지지 않음 ($(sql 'select count(*) from accounts;'))"; fi
 cats=$(sql "select count(*) from categories;"); [ "${cats:-0}" -ge 30 ] 2>/dev/null && ok "categories seeded ($cats)" || bad "categories seeded: $cats"
-[ "$(sql 'pragma user_version;')" = "2" ] && ok "user_version=2" || bad "user_version: $(sql 'pragma user_version;')"
+[ "$(sql 'pragma user_version;')" = "3" ] && ok "user_version=3" || bad "user_version: $(sql 'pragma user_version;')"
 jm=$(sql "pragma journal_mode;"); [ "$jm" = "delete" ] && ok "journal_mode=delete" || bad "journal_mode: $jm"
 [ "$(sql 'pragma integrity_check;')" = "ok" ] && ok "integrity_check" || bad "integrity_check: $(sql 'pragma integrity_check;')"
 tables=$(sql "select group_concat(name) from sqlite_master where type='table' and name in ('transactions','transaction_items','account_rules','budgets','recurring','kv');")

@@ -1,6 +1,7 @@
 import { NativeDatabase, type Queryable } from './native';
 import { seedAccounts, seedCategories } from '../lib/seed';
 import { MIGRATE_V2_ITEMS, PRAGMAS, SCHEMA_V1, SCHEMA_VERSION } from './schema';
+import { MIGRATE_V3_COLUMN, MIGRATE_V3_INDEX, MIGRATE_V3_TABLES, SCHEMA_VERSION_V3 } from './schemaV3';
 
 /** 파일 이름은 Kotlin SharedDb.DB_FILE 과 같아야 한다 (예전 expo-sqlite 와 같은 파일을 이어 쓴다) */
 export const DB_NAME = 'flowledger.db';
@@ -54,5 +55,16 @@ async function migrate(db: NativeDatabase) {
       await tx.execAsync(MIGRATE_V2_ITEMS);
     });
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
+  // v3: 가맹점 별칭·분류 학습·가져오기 묶음 (앞 단계가 user_version 을 2 로 올린 뒤에 다시 읽는다)
+  const v3 = (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version ?? 0;
+  if (v3 < SCHEMA_VERSION_V3) {
+    await db.withExclusiveTransactionAsync(async (tx) => {
+      const cols = await tx.getAllAsync<{ name: string }>('PRAGMA table_info(transactions)');
+      if (!cols.some((c) => c.name === 'import_batch_id')) await tx.execAsync(MIGRATE_V3_COLUMN);
+      await tx.execAsync(MIGRATE_V3_TABLES);
+      await tx.execAsync(MIGRATE_V3_INDEX);
+    });
+    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION_V3}`);
   }
 }

@@ -51,7 +51,7 @@ jest.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({
 jest.mock('expo-haptics', () => ({ selectionAsync: jest.fn(), notificationAsync: jest.fn(), NotificationFeedbackType: { Success: 'success' } }));
 jest.mock('expo-file-system', () => ({ File: class {}, Directory: class {}, Paths: { cache: '', document: '' } }));
 jest.mock('expo-sharing', () => ({}));
-jest.mock('expo-document-picker', () => ({}));
+jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }));
 jest.mock('expo-local-authentication', () => ({ SecurityLevel: { NONE: 0 } }));
 jest.mock('expo-notifications', () => ({}));
 jest.mock('expo-image-picker', () => ({}));
@@ -66,6 +66,7 @@ const render = async (el: React.ReactElement) => {
 const collect = (n: unknown): string => (n == null ? '' : typeof n === 'string' ? n : Array.isArray(n) ? n.map(collect).join('') : collect((n as { children?: unknown }).children));
 const text = (r: renderer.ReactTestRenderer) => collect(r.toJSON());
 
+jest.setTimeout(60_000);
 beforeAll(() => { jest.useFakeTimers().setSystemTime(new Date(2026, 10, 27, 12)); });
 afterAll(() => { jest.useRealTimers(); });
 
@@ -77,8 +78,30 @@ test('홈', async () => {
   expect(s).not.toContain('순자산');
   expect(s).toContain('3,000,000원');
   expect(s).toContain('정기 거래 2건');
+  expect(s).toContain('이번 달 가장 많이 쓴 곳');
   expect(s).toContain('점심');
   expect(s).toContain('비상금');
+});
+
+test('지출 인사이트', async () => {
+  const Insights = require('../src/app/insights').default;
+  const r = await render(<Insights />);
+  const s = text(r);
+  expect(s).toContain('이번 달 지출');
+  expect(s).toContain('어디에 쓰나');
+  expect(s).toContain('가맹점');
+  expect(s).toContain('얼마나 자주');
+  expect(s).toContain('고정비 vs 변동비');
+});
+
+test('거래 가져오기: 시작 화면 안내', async () => {
+  const Import = require('../src/app/more/import').default;
+  const r = await render(<Import />);
+  const s = text(r);
+  expect(s).toContain('은행·카드 내역 가져오기');
+  expect(s).toContain('파일 선택');
+  expect(s).toContain('문자·알림 붙여넣기');
+  expect(s).toContain('비서 앱');
 });
 
 test('내역: 목록과 달력 보기', async () => {
@@ -99,7 +122,7 @@ test('통계', async () => {
 });
 
 test('더보기 · 카테고리 · 예산 · 정기 거래 · 템플릿 · 목표 · 설정 · 백업', async () => {
-  for (const path of ['(tabs)/more', 'more/categories', 'more/budgets', 'more/recurring', 'more/templates', 'more/goals', 'more/settings', 'more/backup', 'more/purchases']) {
+  for (const path of ['(tabs)/more', 'more/categories', 'more/budgets', 'more/recurring', 'more/templates', 'more/goals', 'more/settings', 'more/backup', 'more/purchases', 'more/import']) {
     const Screen = require(`../src/app/${path}`).default;
     const r = await render(<Screen />);
     expect(text(r).length).toBeGreaterThan(50);

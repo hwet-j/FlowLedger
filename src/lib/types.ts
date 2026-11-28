@@ -44,6 +44,8 @@ export interface Tx {
   updated_at: string;
   /** 앱이 보관한 영수증 사진 경로 (앱 전용, 백업에는 경로만 들어가고 사진 파일은 포함되지 않음) */
   receipt_uri: string | null;
+  /** 거래 가져오기로 만든 거래의 묶음 id (가져오기 되돌리기용) */
+  import_batch_id?: string | null;
 }
 
 export interface TxItem {

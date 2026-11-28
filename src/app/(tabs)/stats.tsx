@@ -51,6 +51,10 @@ export default function StatsScreen() {
       </View>
       <MonthNav month={period} onChange={setPeriod} />
 
+      <Card onPress={() => router.push('/insights' as never)} accessibilityLabel="지출 인사이트 열기" style={{ marginTop: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <Text style={{ flex: 1, fontWeight: '800', color: t.primary }}>어디에 가장 많이 쓰는지 · 새는 돈 · 정기 결제 →</Text>
+      </Card>
+
       <Card style={{ marginTop: 14, gap: 12 }}>
         <View style={{ flexDirection: 'row' }}>
           <View style={{ flex: 1 }}><Text style={{ fontSize: 12, color: t.sub }}>{periodLabel} 지출</Text><Text style={{ fontSize: 22, fontWeight: '800', color: t.expense }}>{fmtWon(s.expense)}</Text></View>

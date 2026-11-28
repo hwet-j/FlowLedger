@@ -74,9 +74,10 @@ test('홈', async () => {
   const Home = require('../src/app/(tabs)/index').default;
   const r = await render(<Home />);
   const s = text(r);
-  expect(s).toContain('순자산');
+  expect(s).toContain('이번 달 지출');
+  expect(s).not.toContain('순자산');
   expect(s).toContain('3,000,000원');
-  expect(s).toContain('고정 거래 2건');
+  expect(s).toContain('정기 거래 2건');
   expect(s).toContain('이번 달 가장 많이 쓴 곳');
   expect(s).toContain('점심');
   expect(s).toContain('비상금');
@@ -97,7 +98,7 @@ test('거래 가져오기: 시작 화면 안내', async () => {
   const Import = require('../src/app/more/import').default;
   const r = await render(<Import />);
   const s = text(r);
-  expect(s).toContain('어느 통장의 내역인가요?');
+  expect(s).toContain('은행·카드 내역 가져오기');
   expect(s).toContain('파일 선택');
   expect(s).toContain('문자·알림 붙여넣기');
   expect(s).toContain('비서 앱');
@@ -115,22 +116,24 @@ test('통계', async () => {
   const r = await render(<Stats />);
   const s = text(r);
   expect(s).toContain('카테고리별 지출');
-  expect(s).toContain('순자산 추이');
+  expect(s).not.toContain('순자산 추이');
+  expect(s).not.toContain('통장별 지출');
   expect(s).toContain('리포트 공유');
 });
 
-test('더보기 · 통장 · 규칙 · 카테고리 · 예산 · 고정 거래 · 템플릿 · 목표 · 설정 · 백업', async () => {
-  for (const path of ['(tabs)/more', 'more/accounts', 'more/rules', 'more/categories', 'more/budgets', 'more/recurring', 'more/templates', 'more/goals', 'more/settings', 'more/backup', 'more/purchases', 'more/import']) {
+test('더보기 · 카테고리 · 예산 · 정기 거래 · 템플릿 · 목표 · 설정 · 백업', async () => {
+  for (const path of ['(tabs)/more', 'more/categories', 'more/budgets', 'more/recurring', 'more/templates', 'more/goals', 'more/settings', 'more/backup', 'more/purchases', 'more/import']) {
     const Screen = require(`../src/app/${path}`).default;
     const r = await render(<Screen />);
     expect(text(r).length).toBeGreaterThan(50);
   }
 });
 
-test('입력 시트: 새 내역(규칙·기본 통장 안내)과 수정', async () => {
+test('입력 시트: 새 내역(통장·이체 선택 없음)과 수정', async () => {
   const { TxForm } = require('../src/components/TxForm');
   const r = await render(<TxForm />);
-  expect(text(r)).toContain('기본 통장으로 기록돼요');
+  expect(text(r)).not.toContain('통장');
+  expect(text(r)).not.toContain('이체');
   expect(text(r)).toContain('점심');
   const withItems = await render(<TxForm edit={txs[txs.length - 1]} />);
   expect(text(withItems)).toContain('품목 2개');

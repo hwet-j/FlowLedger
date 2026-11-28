@@ -20,7 +20,7 @@ const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 export default function ListScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { ready, txs, accounts, categories, catById } = useLedger();
+  const { ready, txs, categories, catById } = useLedger();
   const p = useLocalSearchParams<{ month?: string; category?: string; account?: string; q?: string }>();
   const [month, setMonth] = useState(monthKey(new Date()));
   const [query, setQuery] = useState('');
@@ -80,8 +80,7 @@ export default function ListScreen() {
             style={{ height: 46, borderRadius: R.md, paddingHorizontal: 14, fontSize: 16, color: t.text, backgroundColor: t.input }} />
         )}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-          {(['expense', 'income', 'transfer'] as TxType[]).map((k) => <Chip key={k} label={TYPE_LABEL[k]} on={type === k} onPress={() => setType(type === k ? null : k)} />)}
-          {accounts.filter((a) => !a.archived).map((a) => <Chip key={a.id} label={a.name} on={accountId === a.id} onPress={() => setAccountId(accountId === a.id ? null : a.id)} />)}
+          {(['expense', 'income'] as TxType[]).map((k) => <Chip key={k} label={TYPE_LABEL[k]} on={type === k} onPress={() => setType(type === k ? null : k)} />)}
           {catLabel && <Chip label={`분류: ${catLabel}`} on onPress={() => setCategoryId(null)} />}
           <Chip label={calendar ? '목록 보기' : '달력 보기'} icon={calendar ? 'list' : 'calendar'} on={calendar} onPress={() => { setView(calendar ? 'list' : 'calendar'); setSelDay(null); }} />
           <Chip label="전체 기간" on={allTime} onPress={() => setAllTime(!allTime)} />

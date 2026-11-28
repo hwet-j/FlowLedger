@@ -3,14 +3,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, Share, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Donut, LineChart, TrendBars, WeekdayBars } from '../../components/Charts';
+import { Donut, TrendBars, WeekdayBars } from '../../components/Charts';
 import { MonthNav } from '../../components/MonthNav';
 import { catStyle } from '../../components/TxRow';
 import { Bar, Button, Card, Chip, Empty, SectionTitle } from '../../components/ui';
-import { netWorthTrend } from '../../lib/accounts';
 import { monthKey, WEEKDAYS } from '../../lib/dates';
 import { fmtNum, fmtWon } from '../../lib/money';
-import { budgetStatus, byAccount, byWeekday, monthlyReport, monthStats, topMerchants, trend } from '../../lib/stats';
+import { budgetStatus, byWeekday, monthlyReport, monthStats, topMerchants, trend } from '../../lib/stats';
 import { useLedger } from '../../store';
 import { useTheme } from '../../theme';
 
@@ -18,7 +17,7 @@ import { useTheme } from '../../theme';
 export default function StatsScreen() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { txs, categories, accounts, catById, budgets, itemsByTx } = useLedger();
+  const { txs, categories, catById, budgets, itemsByTx } = useLedger();
   const p = useLocalSearchParams<{ month?: string }>();
   const [period, setPeriod] = useState(monthKey(new Date()));
   // 딥링크 flowledger://stats?month=YYYY-MM (또는 YYYY)
@@ -29,17 +28,14 @@ export default function StatsScreen() {
   const [open, setOpen] = useState<string | null>(null);
   const isYear = period.length === 4;
   const s = useMemo(() => monthStats(txs, categories, period, itemsByTx), [txs, categories, period, itemsByTx]);
-  const acc = useMemo(() => byAccount(txs, period), [txs, period]);
   const wk = useMemo(() => byWeekday(txs, period), [txs, period]);
   const merchants = useMemo(() => topMerchants(txs, period, 5), [txs, period]);
   const tr = useMemo(() => trend(txs, isYear ? `${period}-12` : period, 12), [txs, period, isYear]);
-  const nwTrend = useMemo(() => netWorthTrend(accounts, txs, isYear ? `${period}-12` : period, 12), [accounts, txs, period, isYear]);
   const shareReport = () => {
     const label = isYear ? `${period}년` : `${period.slice(0, 4)}년 ${Number(period.slice(5))}월`;
     const bs = isYear ? [] : budgetStatus(budgets, txs, categories, period, itemsByTx);
     void Share.share({ message: monthlyReport(s, bs, label) });
   };
-  const accName = (id: string) => accounts.find((a) => a.id === id)?.name ?? '?';
   const colorOf = (id: string) => catStyle(catById.get(id), catById).color;
   const periodLabel = isYear ? `${period}년` : `${Number(period.slice(5))}월`;
   const listParams = (category?: string) => ({ pathname: '/list' as const, params: isYear ? { category: category ?? '', q: '' } : { month: period, category: category ?? '' } });
@@ -109,25 +105,6 @@ export default function StatsScreen() {
       <SectionTitle title="최근 12개월 추이" />
       <Card><TrendBars data={tr.map((x) => ({ label: `${Number(x.month.slice(5))}`, income: x.income, expense: x.expense }))} selected={isYear ? 11 : 11} /></Card>
 
-      <SectionTitle title="순자산 추이 (월말 기준)" />
-      <Card style={{ gap: 6 }}>
-        <Text style={{ fontSize: 12, color: t.sub }}>현재 {fmtWon(nwTrend[nwTrend.length - 1]?.net ?? 0)}</Text>
-        <LineChart color={t.primary} points={nwTrend.map((x) => ({ label: `${x.month.slice(2, 4)}.${x.month.slice(5)}`, value: x.net }))} />
-      </Card>
-
-      {acc.length > 0 && (
-        <>
-          <SectionTitle title="통장별 지출" />
-          <Card style={{ gap: 10 }}>
-            {acc.map((a) => (
-              <View key={a.account_id} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ fontWeight: '600', color: t.text }}>{accName(a.account_id)}</Text>
-                <Text style={{ color: t.sub, fontWeight: '600' }}>{fmtWon(a.expense)}{a.income ? `  (+${fmtNum(a.income)})` : ''}</Text>
-              </View>
-            ))}
-          </Card>
-        </>
-      )}
 
       {s.expense > 0 && (
         <>

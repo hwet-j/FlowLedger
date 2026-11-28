@@ -45,11 +45,9 @@ function Shell() {
         <Stack.Screen name="tx/[id]" options={{ title: '내역 수정', presentation: 'modal' }} />
         <Stack.Screen name="insights" options={{ title: '지출 인사이트' }} />
         <Stack.Screen name="more/import" options={{ title: '거래 가져오기' }} />
-        <Stack.Screen name="more/accounts" options={{ title: '통장 관리' }} />
         <Stack.Screen name="more/categories" options={{ title: '카테고리 관리' }} />
         <Stack.Screen name="more/budgets" options={{ title: '예산' }} />
         <Stack.Screen name="more/recurring" options={{ title: '고정 거래' }} />
-        <Stack.Screen name="more/rules" options={{ title: '통장 자동 지정 규칙' }} />
         <Stack.Screen name="more/backup" options={{ title: '백업 · 내보내기' }} />
         <Stack.Screen name="more/templates" options={{ title: '자주 쓰는 거래' }} />
         <Stack.Screen name="more/goals" options={{ title: '저축 목표' }} />

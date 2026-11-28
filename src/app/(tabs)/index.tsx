@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { catStyle, TxRow } from '../../components/TxRow';
 import { TopSpend } from '../../components/TopSpend';
 import { Bar, Card, Chip, Empty, SectionTitle } from '../../components/ui';
-import { netWorth } from '../../lib/accounts';
 import { monthKey, todayStr } from '../../lib/dates';
 import { fmtNum, fmtWon } from '../../lib/money';
 import { goalProgress } from '../../lib/goals';
@@ -18,15 +17,12 @@ import { useTheme } from '../../theme';
 export default function Home() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const { ready, error, recovered, dismissRecovered, accounts, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, rentCreated, dismissRent, templates, goals, quickRecord, itemsByTx } = useLedger();
+  const { ready, error, recovered, dismissRecovered, categories, txs, budgets, balances, catById, recurringCreated, dismissRecurring, rentCreated, dismissRent, templates, goals, quickRecord, itemsByTx } = useLedger();
   const month = monthKey(new Date());
   const today = todayStr();
   const stats = useMemo(() => monthStats(txs, categories, month, itemsByTx), [txs, categories, month, itemsByTx]);
   const bs = useMemo(() => budgetStatus(budgets, txs, categories, month, itemsByTx), [budgets, txs, categories, month, itemsByTx]);
-  const nw = useMemo(() => netWorth(balances, new Set(accounts.filter((a) => a.archived).map((a) => a.id))), [balances, accounts]);
-  const total = nw.net;
   const proj = useMemo(() => projectMonthEnd(txs, month, new Date()), [txs, month]);
-  const active = accounts.filter((a) => !a.archived);
   const totalBudget = bs.find((b) => b.budget.category_id === null);
   const allowance = totalBudget ? dailyAllowance(totalBudget.remaining, today, month) : null;
 
@@ -53,24 +49,15 @@ export default function Home() {
       {recurringCreated > 0 && (
         <Pressable onPress={dismissRecurring} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: t.primarySoft, borderRadius: 14, padding: 14, marginBottom: 12 }}>
           <Ionicons name="repeat" size={20} color={t.primary} />
-          <Text style={{ flex: 1, color: t.primary, fontWeight: '700' }}>고정 거래 {recurringCreated}건이 자동으로 기록됐어요</Text>
+          <Text style={{ flex: 1, color: t.primary, fontWeight: '700' }}>정기 거래 {recurringCreated}건이 자동으로 기록됐어요</Text>
           <Ionicons name="close" size={18} color={t.primary} />
         </Pressable>
       )}
 
-      <Card style={{ gap: 4 }}>
-        <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub }}>순자산</Text>
-        <Text style={{ fontSize: 34, fontWeight: '800', color: total < 0 ? t.expense : t.text }}>{fmtWon(total)}</Text>
-        <Text style={{ fontSize: 12.5, color: t.sub }}>자산 {fmtWon(nw.assets)} · 부채 {fmtWon(nw.debt)}</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingTop: 10 }}>
-          {active.map((a) => (
-            <Pressable key={a.id} onPress={() => router.push({ pathname: '/list', params: { account: a.id } })} accessibilityRole="button"
-              style={{ backgroundColor: t.input, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 }}>
-              <Text style={{ fontSize: 12, color: t.sub }}>{a.is_default ? '★ ' : ''}{a.name}</Text>
-              <Text style={{ fontSize: 14, fontWeight: '700', color: (balances.get(a.id) ?? 0) < 0 ? t.expense : t.text }}>{fmtWon(balances.get(a.id) ?? 0)}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
+      <Card style={{ gap: 6 }}>
+        <Text style={{ fontSize: 13, fontWeight: '700', color: t.sub }}>이번 달 지출</Text>
+        <Text style={{ fontSize: 34, fontWeight: '800', color: t.expense }}>{fmtWon(stats.expense)}</Text>
+        <Text style={{ fontSize: 13, color: t.sub }}>수입 {fmtWon(stats.income)} · 남은 돈 {fmtWon(stats.income - stats.expense)}</Text>
       </Card>
 
       {templates.length > 0 && (
